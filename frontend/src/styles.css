@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+@layer components {
+  .chat-message {
+    @apply mb-4 animate-slide-up;
+  }
+
+  .chat-bubble-user {
+    @apply bg-primary-600 text-white rounded-2xl rounded-tr-md px-4 py-3 max-w-sm ml-auto shadow-sm;
+  }
+
+  .chat-bubble-assistant {
+    @apply bg-white text-gray-900 rounded-2xl rounded-tl-md px-4 py-3 max-w-2xl shadow-sm border border-gray-200;
+  }
+
+  .typing-indicator {
+    @apply flex items-center space-x-1 text-gray-500 text-sm;
+  }
+
+  .typing-dot {
+    @apply w-2 h-2 bg-gray-400 rounded-full animate-pulse-soft;
+    animation-delay: 0ms;
+  }
+
+  .typing-dot:nth-child(2) {
+    animation-delay: 150ms;
+  }
+
+  .typing-dot:nth-child(3) {
+    animation-delay: 300ms;
+  }
+
+  .sidebar-transition {
+    @apply transform transition-transform duration-300 ease-in-out;
+  }
+
+  .input-focus {
+    @apply focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all duration-200;
+  }
+
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium px-4 py-2 rounded-lg transition-colors duration-200;
+  }
+
+  .btn-ghost {
+    @apply hover:bg-gray-100 text-gray-600 p-2 rounded-lg transition-colors duration-200;
+  }
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.7);
+}
+
+/* Loading animation for messages */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-enter {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+/* Markdown styling in chat messages */
+.prose-chat {
+  @apply text-sm leading-relaxed;
+}
+
+.prose-chat h1, .prose-chat h2, .prose-chat h3 {
+  @apply font-semibold text-gray-900 mt-4 mb-2;
+}
+
+.prose-chat h1 { @apply text-lg; }
+.prose-chat h2 { @apply text-base; }
+.prose-chat h3 { @apply text-sm; }
+
+.prose-chat p {
+  @apply mb-3 last:mb-0;
+}
+
+.prose-chat ul, .prose-chat ol {
+  @apply mb-3 pl-4;
+}
+
+.prose-chat li {
+  @apply mb-1;
+}
+
+.prose-chat code {
+  @apply bg-gray-100 px-1 py-0.5 rounded text-xs font-mono;
+}
+
+.prose-chat pre {
+  @apply bg-gray-100 p-3 rounded-lg text-xs font-mono overflow-x-auto mb-3;
+}
+
+.prose-chat blockquote {
+  @apply border-l-4 border-gray-300 pl-4 italic text-gray-600 mb-3;
+}
+
+.prose-chat a {
+  @apply text-primary-600 hover:text-primary-700 underline;
+}
+
+.prose-chat table {
+  @apply w-full border-collapse mb-3;
+}
+
+.prose-chat th, .prose-chat td {
+  @apply border border-gray-300 px-2 py-1 text-xs;
+}
+
+.prose-chat th {
+  @apply bg-gray-100 font-medium;
+}

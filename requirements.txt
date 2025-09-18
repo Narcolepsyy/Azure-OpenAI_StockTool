@@ -1,0 +1,25 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+openai>=1.35.0,<2.0.0
+yfinance>=0.2.40
+pandas>=2.0.0
+numpy>=1.24.0
+aiofiles>=23.2.1
+cachetools>=5.3.3
+python-dotenv>=1.0.1
+feedparser>=6.0.11
+SQLAlchemy>=2.0.32
+passlib[bcrypt]>=1.7.4
+python-jose[cryptography]>=3.3.0
+python-multipart>=0.0.9
+# RAG / LangChain
+langchain>=0.2.15
+langchain-openai>=0.2.3
+langchain-community>=0.2.12
+chromadb>=0.5.5
+tiktoken>=0.7.0
+# Article extraction
+requests>=2.32.3
+beautifulsoup4>=4.12.3
+readability-lxml>=0.8.1
+lxml>=5.2.2
