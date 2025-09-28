@@ -1,5 +1,5 @@
 # Azure-OpenAI_StockTool
-DEMO[https://drive.google.com/file/d/1B1sNUfY5oYQSipheqQFa8lbwyCilUDv1/view?usp=sharing]
+[DEMO](https://drive.google.com/file/d/1B1sNUfY5oYQSipheqQFa8lbwyCilUDv1/view?usp=sharing)
 
 ## 概要
 
