@@ -1,5 +1,5 @@
 # 📈 Azure-OpenAI StockTool DEMO – Chat with the Market
-[DEMO VIDEO](https://drive.google.com/file/d/1B1sNUfY5oYQSipheqQFa8lbwyCilUDv1/view?usp=sharing)
+[DEMO VIDEO](https://drive.google.com/file/d/1KjNrVTqb1ue2jdfk63n7E46ZzFNRsf0N/view?usp=sharing)
 
 ## 概要
 
