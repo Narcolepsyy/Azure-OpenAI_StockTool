@@ -22,3 +22,8 @@ frontend/tsconfig.tsbuildinfo
 
 .chroma
 
+# ML Models (trained prediction models can be large)
+models/stock_predictions/*.h5
+models/stock_predictions/*.pkl
+models/stock_predictions/*.json
+

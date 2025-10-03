@@ -20,11 +20,24 @@ _vectorstore_cache = None
 _last_index_check = 0
 
 def _ensure_dirs():
-    """Ensure knowledge and chroma directories exist."""
+    """Ensure knowledge and chroma directories exist with proper permissions."""
     try:
         os.makedirs(KNOWLEDGE_DIR, exist_ok=True)
         os.makedirs(CHROMA_DIR, exist_ok=True)
-    except Exception:
+        
+        # Ensure directories are writable
+        os.chmod(KNOWLEDGE_DIR, 0o755)
+        os.chmod(CHROMA_DIR, 0o755)
+        
+        # If .chroma has any files, ensure they're writable too
+        for root, dirs, files in os.walk(CHROMA_DIR):
+            for d in dirs:
+                os.chmod(os.path.join(root, d), 0o755)
+            for f in files:
+                os.chmod(os.path.join(root, f), 0o644)
+                
+    except Exception as e:
+        logger.warning(f"Could not ensure directory permissions: {e}")
         pass
 
 @lru_cache(maxsize=1)
@@ -48,26 +61,41 @@ def _get_embeddings():
             AzureEmb = import_module("langchain_openai").AzureOpenAIEmbeddings
             if not AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT:
                 raise RuntimeError("AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT is required for Azure RAG")
-            _embeddings_cache = AzureEmb(
-                azure_deployment=AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT,
-                api_key=AZURE_OPENAI_API_KEY,
-                azure_endpoint=_normalize_azure_endpoint(AZURE_OPENAI_ENDPOINT),
-                openai_api_version=AZURE_OPENAI_API_VERSION,
+            # Configure for text-embedding-3-large model
+            embedding_config = {
+                "azure_deployment": AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT,
+                "api_key": AZURE_OPENAI_API_KEY,
+                "azure_endpoint": _normalize_azure_endpoint(AZURE_OPENAI_ENDPOINT),
+                "openai_api_version": AZURE_OPENAI_API_VERSION,
                 # Performance optimizations
-                chunk_size=100,  # Batch embeddings
-                max_retries=1,   # Reduce retry overhead
-                request_timeout=30  # Shorter timeout
-            )
+                "chunk_size": 50,  # Smaller batches for large model
+                "max_retries": 2,   # Extra retry for reliability  
+                "request_timeout": 45  # Longer timeout for large embeddings
+            }
+            
+            # Add dimensions parameter for text-embedding-3-large
+            # Use 1536 for compatibility with existing indexes or 3072 for full quality
+            if "text-embedding-3-large" in str(AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT).lower():
+                embedding_config["dimensions"] = 1536  # Reduced for compatibility
+                logger.info("Using text-embedding-3-large with 1536 dimensions for compatibility")
+            
+            _embeddings_cache = AzureEmb(**embedding_config)
         else:
             # Standard OpenAI embeddings
             OpenEmb = import_module("langchain_openai").OpenAIEmbeddings
             kwargs = {
                 "model": OPENAI_EMBEDDINGS_MODEL,
                 "api_key": OPENAI_API_KEY,
-                "chunk_size": 100,  # Batch embeddings
-                "max_retries": 1,   # Reduce retry overhead
-                "request_timeout": 30  # Shorter timeout
+                "chunk_size": 50,  # Smaller batches for large model
+                "max_retries": 2,   # Extra retry for reliability
+                "request_timeout": 45  # Longer timeout for large embeddings
             }
+            
+            # Add dimensions parameter for text-embedding-3-large
+            if "text-embedding-3-large" in OPENAI_EMBEDDINGS_MODEL.lower():
+                kwargs["dimensions"] = 1536  # Reduced for compatibility
+                logger.info("Using text-embedding-3-large with 1536 dimensions for compatibility")
+            
             if (OPENAI_BASE_URL or "").strip():
                 kwargs["base_url"] = OPENAI_BASE_URL.strip()
             _embeddings_cache = OpenEmb(**kwargs)
@@ -88,6 +116,21 @@ def rag_reindex(clear: bool = True) -> Dict[str, Any]:
     
     _ensure_dirs()
 
+    # Check if embedding model changed - if so, force clear to avoid dimension mismatch
+    embedding_model_file = os.path.join(CHROMA_DIR, ".embedding_model")
+    current_model = AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT or OPENAI_EMBEDDINGS_MODEL
+    force_clear = clear
+    
+    if os.path.exists(embedding_model_file) and not clear:
+        try:
+            with open(embedding_model_file, 'r') as f:
+                stored_model = f.read().strip()
+            if stored_model != current_model:
+                logger.info(f"Embedding model changed from {stored_model} to {current_model} - forcing clear reindex")
+                force_clear = True
+        except:
+            force_clear = True
+    
     # Clear caches when reindexing
     _vectorstore_cache = None
     _embeddings_cache = None
@@ -115,14 +158,33 @@ def rag_reindex(clear: bool = True) -> Dict[str, Any]:
         return {"enabled": False, "error": "Missing dependencies"}
 
     # Optionally clear existing index
-    if clear:
+    if force_clear:
         try:
             import shutil
             if os.path.isdir(CHROMA_DIR):
+                # Ensure permissions before removal
+                try:
+                    os.chmod(CHROMA_DIR, 0o755)
+                    for root, dirs, files in os.walk(CHROMA_DIR):
+                        for d in dirs:
+                            os.chmod(os.path.join(root, d), 0o755)
+                        for f in files:
+                            os.chmod(os.path.join(root, f), 0o644)
+                except:
+                    pass
                 shutil.rmtree(CHROMA_DIR, ignore_errors=True)
             os.makedirs(CHROMA_DIR, exist_ok=True)
-        except Exception:
+            os.chmod(CHROMA_DIR, 0o755)
+        except Exception as e:
+            logger.warning(f"Could not clear chroma directory: {e}")
             pass
+
+    # Store current embedding model for future compatibility checks
+    try:
+        with open(embedding_model_file, 'w') as f:
+            f.write(current_model)
+    except Exception as e:
+        logger.warning(f"Could not save embedding model info: {e}")
 
     # Load files (.txt, .md) with size limits for performance
     docs: List[Any] = []
@@ -151,6 +213,7 @@ def rag_reindex(clear: bool = True) -> Dict[str, Any]:
     if not docs:
         # create empty collection
         try:
+            _ensure_dirs()
             vs = Chroma(
                 persist_directory=CHROMA_DIR,
                 collection_name="knowledge_base",
@@ -160,8 +223,31 @@ def rag_reindex(clear: bool = True) -> Dict[str, Any]:
             _last_index_check = os.path.getmtime(CHROMA_DIR) if os.path.exists(CHROMA_DIR) else 0
             return {"enabled": True, "files": 0, "chunks": 0}
         except Exception as e:
-            logger.error(f"Failed to create empty vectorstore: {e}")
-            return {"enabled": False, "error": str(e)}
+            error_msg = str(e)
+            logger.error(f"Failed to create empty vectorstore: {error_msg}")
+            
+            if "readonly database" in error_msg:
+                logger.error("ChromaDB permission issue - trying to fix...")
+                try:
+                    import shutil
+                    if os.path.exists(CHROMA_DIR):
+                        shutil.rmtree(CHROMA_DIR, ignore_errors=True)
+                    _ensure_dirs()
+                    
+                    vs = Chroma(
+                        persist_directory=CHROMA_DIR,
+                        collection_name="knowledge_base",
+                        embedding_function=_get_embeddings()
+                    )
+                    _vectorstore_cache = vs
+                    _last_index_check = os.path.getmtime(CHROMA_DIR) if os.path.exists(CHROMA_DIR) else 0
+                    logger.info("Empty RAG collection created after permission fix")
+                    return {"enabled": True, "files": 0, "chunks": 0}
+                except Exception as retry_e:
+                    logger.error(f"Retry failed: {retry_e}")
+                    return {"enabled": False, "error": f"Permission issue: {error_msg}"}
+            
+            return {"enabled": False, "error": error_msg}
 
     # Optimize chunking for performance
     splitter = TextSplitter(
@@ -178,6 +264,9 @@ def rag_reindex(clear: bool = True) -> Dict[str, Any]:
             logger.warning(f"Limiting chunks from {len(chunks)} to 1000 for performance")
             chunks = chunks[:1000]
 
+        # Ensure directory exists and is writable before creating vectorstore
+        _ensure_dirs()
+        
         vs = Chroma.from_documents(
             documents=chunks,
             embedding=_get_embeddings(),
@@ -192,8 +281,36 @@ def rag_reindex(clear: bool = True) -> Dict[str, Any]:
         return {"enabled": True, "files": len(docs), "chunks": len(chunks)}
 
     except Exception as e:
-        logger.error(f"Failed to create vectorstore: {e}")
-        return {"enabled": False, "error": str(e)}
+        error_msg = str(e)
+        logger.error(f"Failed to create vectorstore: {error_msg}")
+        
+        # Try to provide a more helpful error message
+        if "readonly database" in error_msg:
+            logger.error("ChromaDB database permission issue. Trying to fix...")
+            try:
+                # Try to fix permissions and retry once
+                import shutil
+                if os.path.exists(CHROMA_DIR):
+                    shutil.rmtree(CHROMA_DIR, ignore_errors=True)
+                _ensure_dirs()
+                
+                vs = Chroma.from_documents(
+                    documents=chunks,
+                    embedding=_get_embeddings(),
+                    persist_directory=CHROMA_DIR,
+                    collection_name="knowledge_base",
+                )
+                
+                _vectorstore_cache = vs
+                _last_index_check = os.path.getmtime(CHROMA_DIR) if os.path.exists(CHROMA_DIR) else 0
+                logger.info(f"RAG index created after permission fix with {len(chunks)} chunks from {len(docs)} files")
+                return {"enabled": True, "files": len(docs), "chunks": len(chunks)}
+                
+            except Exception as retry_e:
+                logger.error(f"Retry also failed: {retry_e}")
+                return {"enabled": False, "error": f"Permission issue: {error_msg}"}
+        
+        return {"enabled": False, "error": error_msg}
 
 def _get_vectorstore():
     """Get the cached Chroma vectorstore instance with lazy loading."""

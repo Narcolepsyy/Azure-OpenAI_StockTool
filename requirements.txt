@@ -23,3 +23,24 @@ requests>=2.32.3
 beautifulsoup4>=4.12.3
 readability-lxml>=0.8.1
 lxml>=5.2.2
+# Web search
+aiohttp>=3.9.0
+ddgs>=6.2.13
+# BM25 ranking and text processing
+rank-bm25>=0.2.2
+html2text>=2020.1.16
+nltk>=3.8.1
+scikit-learn>=1.3.0
+# Japanese text processing (optional)
+mecab-python3>=1.0.6
+# unidic-lite>=1.0.8
+# Finnhub for real-time stock data
+finnhub-python>=2.4.19
+websocket-client>=1.6.0
+# AWS SDK for cloud services (works with LocalStack)
+boto3>=1.34.0
+botocore>=1.34.0
+
+# Machine Learning for Stock Prediction (Lightweight for GTX 1650 Ti - 4GB VRAM)
+tensorflow>=2.15.0,<2.16.0  # Optimized version for GPU
+scikit-learn>=1.3.0  # For data preprocessing and scaling

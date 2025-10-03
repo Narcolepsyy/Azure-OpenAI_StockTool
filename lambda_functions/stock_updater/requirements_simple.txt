@@ -1,0 +1,2 @@
+# Minimal Lambda requirements - boto3 only (pre-installed in Lambda runtime)
+# No additional dependencies needed for simplified version

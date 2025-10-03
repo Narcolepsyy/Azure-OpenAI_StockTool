@@ -11,6 +11,7 @@ A modular FastAPI application for AI-powered stock analysis with:
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +20,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, chat, admin
 from app.routers.rag import router as rag_router
 from app.routers.models import router as models_router
+from app.routers.enhanced_search import router as enhanced_search_router
+from app.routers.dashboard import router as dashboard_router
+from app.routers.prediction import router as prediction_router
 from app.core.config import FRONTEND_ORIGINS
 from app.services.openai_client import get_provider
 from app.core.config import RAG_ENABLED, KNOWLEDGE_DIR
@@ -27,8 +31,23 @@ from app.core.config import RAG_ENABLED, KNOWLEDGE_DIR
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger("app")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle startup and shutdown events."""
+    # Startup
+    logger.info("Starting AI Stocks Assistant API...")
+    yield
+    # Shutdown
+    logger.info("Shutting down AI Stocks Assistant API...")
+    try:
+        from app.routers.chat import cleanup_chat_resources
+        await cleanup_chat_resources()
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
+
 # Create FastAPI app
 app = FastAPI(
+    lifespan=lifespan,
     title="AI Stocks Assistant API",
     version="0.4.0",
     description="Modular FastAPI + OpenAI/Azure OpenAI with stock analysis tools and RAG knowledge base.",
@@ -69,6 +88,9 @@ app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(rag_router)
 app.include_router(models_router)
+app.include_router(enhanced_search_router)
+app.include_router(dashboard_router)
+app.include_router(prediction_router)
 
 # Serve static files
 app.mount("/static", StaticFiles(directory="static", check_dir=False), name="static")

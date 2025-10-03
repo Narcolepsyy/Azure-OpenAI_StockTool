@@ -7,8 +7,53 @@
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
+  :root {
+    /* Color tokens */
+    --color-bg: #0f172a; /* slate-900 */
+    --color-bg-alt: #1e293b; /* slate-800 */
+    --color-surface: #1f2937; /* gray-800 */
+    --color-border: #374151; /* gray-700 */
+    --color-border-accent: #3b82f6; /* blue-500 */
+    --color-text-primary: #f1f5f9; /* slate-100 */
+    --color-text-secondary: #cbd5e1; /* slate-300 */
+    --color-text-muted: #94a3b8; /* slate-400 */
+    --color-focus-ring: 59 130 246; /* blue-500 rgb parts */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 16px;
+    --easing-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px -2px rgba(0,0,0,0.35);
+    --shadow-lg: 0 8px 28px -6px rgba(0,0,0,0.45);
+    --transition-fast: 160ms var(--easing-standard);
+    --transition-medium: 300ms var(--easing-standard);
+  }
+
   body {
-    @apply bg-gray-50 text-gray-900;
+    @apply bg-gray-900 text-white;
+  }
+
+  .skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: #2563eb;
+    color: #fff;
+    padding: 8px 16px;
+    z-index: 1000;
+    border-radius: 0 0 4px 0;
+    font-weight: 500;
+    transition: top 0.2s ease;
+  }
+  .skip-link:focus { top: 0; }
+
+  /* Ensure the app uses a single viewport without page-level scrolling */
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    overflow: hidden;           /* prevent white space scroll below the app */
+    overscroll-behavior: none;  /* avoid rubber-banding/bounce on some browsers */
   }
 }
 
@@ -17,12 +62,112 @@
     @apply mb-4 animate-slide-up;
   }
 
+      /* Unified focus ring */
+      .focus-ring:focus-visible {
+        outline: 2px solid rgb(var(--color-focus-ring));
+        outline-offset: 2px;
+      }
+  /* Smooth fade/slide for new QA sections */
+  .qa-section-enter {
+    animation: qaSectionEnter 480ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  /* Tab panel animation */
+  .tab-panel-enter {
+    animation: tabPanelEnter 320ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Elevated card shared styling */
+  .elevated-card {
+    transition: transform var(--transition-fast), box-shadow var(--transition-medium), border-color var(--transition-fast), background-color var(--transition-fast);
+    will-change: transform;
+  }
+  .elevated-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+  .elevated-card:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Optional higher contrast helper */
+  .contrast-up { color: var(--color-text-secondary); }
+
+  /* Collapsible content wrapper (height auto animation) */
+  .collapse-wrapper {
+    overflow: hidden;
+    transition: height 280ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease;
+  }
+
+  .collapse-wrapper[data-state='collapsed'] {
+    height: 0 !important;
+    opacity: 0;
+  }
+
+  .collapse-wrapper[data-state='expanded'] {
+    opacity: 1;
+  }
+
+  /* ToolCard subtle hover */
+  .toolcard {
+    transition: background-color 160ms ease, border-color 160ms ease, box-shadow 240ms ease;
+  }
+  .toolcard:hover {
+    box-shadow: 0 4px 12px -2px rgba(0,0,0,0.4);
+  }
+
+  /* Sliding tab indicator container */
+  .tab-indicator-container {
+    position: relative;
+  }
+
+  .tab-indicator-bar {
+    position: absolute;
+    bottom: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #3b82f6 0%, #6366f1 100%);
+    border-radius: 2px;
+    transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1), width 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 300ms;
+    opacity: 0.9;
+    will-change: transform, width;
+    pointer-events: none;
+  }
+
   .chat-bubble-user {
     @apply bg-primary-600 text-white rounded-2xl rounded-tr-md px-4 py-3 max-w-sm ml-auto shadow-sm;
   }
 
   .chat-bubble-assistant {
     @apply bg-white text-gray-900 rounded-2xl rounded-tl-md px-4 py-3 max-w-2xl shadow-sm border border-gray-200;
+  }
+
+  /* Modern chat input styling */
+  .chat-input-container {
+    @apply relative;
+  }
+
+  .chat-input-container:focus-within::before {
+    content: '';
+    @apply absolute inset-0 rounded-2xl;
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.3), rgba(139, 92, 246, 0.3));
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: xor;
+    -webkit-mask-composite: xor;
+    padding: 1px;
+    z-index: -1;
+  }
+
+  .chat-send-button {
+    @apply transform transition-all duration-200 ease-out;
+  }
+
+  .chat-send-button:hover:not(:disabled) {
+    @apply scale-105;
+  }
+
+  .chat-send-button:active:not(:disabled) {
+    @apply scale-95;
   }
 
   .typing-indicator {
@@ -61,6 +206,32 @@
   .btn-ghost {
     @apply hover:bg-gray-100 text-gray-600 p-2 rounded-lg transition-colors duration-200;
   }
+
+  .markdown-body .katex {
+    color: var(--color-text-primary);
+    font-size: 0.95rem;
+  }
+
+  .markdown-body .katex-inline {
+    padding: 0.1rem 0.25rem;
+    background: rgba(15, 23, 42, 0.35);
+    border-radius: 0.35rem;
+    line-height: 1.75;
+  }
+
+  .markdown-body .katex-display {
+    margin: 1.25rem 0;
+    padding: 0.9rem 1.1rem;
+    background: rgba(15, 23, 42, 0.45);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 0.9rem;
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.35);
+  }
+
+  .markdown-body .katex-display > .katex {
+    display: block;
+    text-align: center;
+  }
 }
 
 /* Custom scrollbar */
@@ -81,6 +252,49 @@
   background: rgba(156, 163, 175, 0.7);
 }
 
+/* Thin scrollbar for dashboard components */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.5);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 85, 99, 0.8);
+}
+
+.scrollbar-thumb-gray-700::-webkit-scrollbar-thumb {
+  background: rgba(55, 65, 81, 0.6);
+}
+
+.scrollbar-thumb-gray-700::-webkit-scrollbar-thumb:hover {
+  background: rgba(55, 65, 81, 0.9);
+}
+
+.scrollbar-thumb-gray-600::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.6);
+}
+
+.scrollbar-thumb-gray-600::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 85, 99, 0.9);
+}
+
+.scrollbar-track-gray-800::-webkit-scrollbar-track {
+  background: rgba(31, 41, 55, 0.3);
+}
+
+.scrollbar-track-gray-700::-webkit-scrollbar-track {
+  background: rgba(55, 65, 81, 0.3);
+}
+
 /* Loading animation for messages */
 @keyframes fadeInUp {
   from {
@@ -93,8 +307,712 @@
   }
 }
 
+/* QA section enter keyframes */
+@keyframes qaSectionEnter {
+  0% { opacity: 0; transform: translateY(18px) scale(0.98); }
+  60% { opacity: 1; transform: translateY(0) scale(1.005); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Tab panel enter keyframes */
+@keyframes tabPanelEnter {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Answer paragraph reveal */
+@keyframes answerParagraphIn {
+  0% { opacity: 0; transform: translateY(6px); }
+  60% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.answer-paragraph {
+  opacity: 0;
+  animation: answerParagraphIn 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
+
+/* Citation popover styling - Modern GPT/Perplexity style */
+.citation-popover-modern {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  box-shadow: 
+    0 20px 25px -5px rgba(0, 0, 0, 0.3),
+    0 10px 10px -5px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(148, 163, 184, 0.05);
+  border-radius: 0.75rem;
+  padding: 0.875rem 1rem;
+  max-width: 320px;
+  min-width: 240px;
+  animation: citationPopIn 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes citationPopIn {
+  0% { 
+    opacity: 0; 
+    transform: translateX(-50%) translateY(-4px) scale(0.96); 
+  }
+  100% { 
+    opacity: 1; 
+    transform: translateX(-50%) translateY(0) scale(1); 
+  }
+}
+
+/* Skeleton blocks for answer streaming */
+.answer-skeleton-line { @apply h-3 rounded bg-gray-700/40 skeleton-shimmer; }
+.answer-skeleton-line.short { width: 55%; }
+.answer-skeleton-line.medium { width: 75%; }
+.answer-skeleton-line.long { width: 92%; }
+.answer-skeleton-paragraph { @apply space-y-2 mb-4; }
+
+@media (prefers-reduced-motion: reduce) {
+  .answer-paragraph, .source-card-anim, .qa-section-enter, .tab-panel-enter { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .header-scanning-bar { display: none !important; }
+  .skeleton-shimmer { animation: none !important; }
+}
+
+/* Perplexity-like staggered source card animation */
+@keyframes sourceCardIn {
+  0% { opacity: 0; transform: translateY(8px) scale(0.98); }
+  60% { opacity: 1; transform: translateY(0) scale(1.01); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.source-card-anim {
+  animation: sourceCardIn 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Scanning bar under sticky header (during streaming) */
+.header-scanning-bar {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  background: linear-gradient(90deg, rgba(59,130,246,0) 0%, rgba(59,130,246,0.4) 50%, rgba(59,130,246,0) 100%);
+  background-size: 200% 100%;
+  animation: headerScan 1.4s linear infinite;
+}
+
+@keyframes headerScan {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Shimmer skeleton for placeholder sources */
+@keyframes shimmerMove {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(110deg, rgba(55,65,81,0.4) 25%, rgba(75,85,99,0.55) 37%, rgba(55,65,81,0.4) 63%);
+  background-size: 200% 100%;
+  animation: shimmerMove 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.skeleton-block { @apply rounded-md relative overflow-hidden bg-gray-700/40; }
+
+.skeleton-pulse { animation: shimmerMove 1.8s ease-in-out infinite; }
+
 .message-enter {
   animation: fadeInUp 0.3s ease-out;
+}
+
+/* Chat title handling for long Japanese text */
+.chat-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: break-all; /* For Japanese characters */
+  max-width: 200px; /* Default constraint to prevent initial layout shift */
+  transition: max-width 0.3s ease-in-out;
+}
+
+@media (min-width: 768px) {
+  .chat-title {
+    max-width: 300px; /* Larger default on desktop */
+  }
+}
+
+/* Constrained title during active states */
+.chat-title.constrained {
+  max-width: 150px;
+}
+
+@media (min-width: 768px) {
+  .chat-title.constrained {
+    max-width: 250px;
+  }
+}
+
+/* Responsive header layout */
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 60px;
+  gap: 1rem;
+}
+
+.chat-header-left {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.chat-header-right {
+  flex-shrink: 0;
+}
+
+/* Welcome screen styles */
+.welcome-screen {
+  @apply min-h-screen flex items-center justify-center bg-gray-900;
+}
+
+.welcome-container {
+  @apply max-w-4xl w-full mx-auto px-6 text-center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 70vh;
+}
+
+.welcome-icon {
+  @apply inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl mb-6 shadow-lg;
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.welcome-title {
+  @apply text-4xl md:text-5xl font-bold text-white mb-3;
+}
+
+.welcome-subtitle {
+  @apply text-lg md:text-xl text-gray-400 mb-12 max-w-2xl mx-auto leading-relaxed;
+}
+
+.welcome-input-container {
+  @apply relative max-w-3xl mx-auto mb-8;
+  width: 100%;
+}
+
+.welcome-input {
+  @apply w-full resize-none border-2 border-gray-200 rounded-2xl px-6 py-4 pr-16 text-lg placeholder-gray-400 transition-all duration-200;
+  @apply focus:outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 shadow-sm hover:shadow-md focus:shadow-lg;
+  min-height: 64px;
+  max-height: 200px;
+}
+
+.welcome-send-button {
+  @apply absolute right-3 top-1/2 transform -translate-y-1/2 p-3 bg-blue-600 text-white rounded-xl transition-all duration-200;
+  @apply hover:bg-blue-700 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100;
+  box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.25);
+}
+
+.welcome-send-button:hover:not(:disabled) {
+  box-shadow: 0 8px 25px 0 rgba(59, 130, 246, 0.4);
+}
+
+.welcome-model-indicator {
+  @apply inline-flex items-center space-x-2 px-4 py-2 bg-white/60 backdrop-blur-sm border border-gray-200 rounded-full text-sm text-gray-600 shadow-sm;
+}
+
+.welcome-floating-menu {
+  @apply fixed top-6 left-6 p-3 bg-gray-800/90 backdrop-blur-sm rounded-xl shadow-md hover:shadow-lg transition-all duration-200 z-10;
+  @apply hover:bg-gray-700/90 border border-gray-600/50;
+}
+
+/* Smooth transitions for layout changes */
+.layout-transition {
+  @apply transition-all duration-500 ease-in-out;
+}
+
+/* Sidebar spacing for dark theme */
+.sidebar-spacing {
+  margin-left: 0;
+}
+
+@media (min-width: 1024px) {
+  .sidebar-spacing.sidebar-open {
+    margin-left: 320px; /* 80 * 4 = 320px (w-80) */
+  }
+}
+
+/* Welcome screen entrance animation */
+.welcome-entrance {
+  animation: welcomeEnter 0.8s ease-out;
+}
+
+@keyframes welcomeEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Fade in animation for quick actions */
+.quick-actions-fade {
+  animation: fadeInUp 0.6s ease-out 0.3s both;
+}
+
+/* Layout spacing to prevent sidebar/content collision */
+@media (min-width: 1024px) {
+  .sidebar-open-layout {
+    display: flex;
+    gap: 1.5rem; /* 24px gap between sidebar and content */
+  }
+  
+  .sidebar-fixed {
+    width: 20rem; /* 320px - fixed sidebar width */
+    flex-shrink: 0;
+  }
+  
+  .main-content-with-sidebar {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* Enhanced mobile responsiveness for welcome screen */
+@media (max-width: 768px) {
+  .welcome-container {
+    @apply px-4;
+  }
+  
+  .welcome-title {
+    @apply text-3xl;
+  }
+  
+  .welcome-subtitle {
+    @apply text-base mb-8;
+  }
+  
+  .welcome-input {
+    @apply px-4 py-3 text-base;
+    min-height: 56px;
+  }
+  
+  .welcome-send-button {
+    @apply right-2 p-2;
+  }
+  
+  .welcome-icon {
+    @apply w-16 h-16 mb-4;
+  }
+  
+  .welcome-floating-menu {
+    @apply top-4 left-4 p-2;
+  }
+}
+
+/* Ensure proper text truncation for different languages */
+@supports (text-overflow: ellipsis) {
+  .truncate-multiline {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+  }
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+  .chat-title {
+    font-size: 1rem;
+    line-height: 1.25rem;
+  }
+  
+  .chat-header {
+    padding: 0.75rem 1rem;
+    min-height: 56px;
+  }
+}
+
+/* Sticky Question Headers */
+.qa-section {
+  @apply relative; /* Establishes stacking context for sticky children */
+  
+  /* Critical: overflow must be visible for sticky positioning to work */
+  overflow: visible;
+  
+  /* Ensure natural content flow and section boundaries */
+  min-height: fit-content;
+  
+  /* Each section contains its sticky header completely */
+  contain: layout style;
+  z-index: 0;
+  isolation: isolate;
+}
+
+.qa-header {
+  /* Core sticky properties - CSS handles stickiness naturally */
+  position: sticky;
+  top: 0; /* Critical: must be set for sticky to work */
+  z-index: 10; /* Above content, below modals */
+  
+  /* Solid background prevents content bleed-through */
+  background-color: rgb(17, 24, 39); /* Solid bg-gray-900 - no transparency */
+  
+  /* Optional backdrop blur for enhanced visual separation */
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  
+  /* No shadow in default state for clean look */
+  box-shadow: none;
+  
+  /* Smoother transitions with longer duration to prevent flicker */
+  transition: 
+    box-shadow 0.3s cubic-bezier(0.25, 0.1, 0.25, 1),
+    backdrop-filter 0.3s cubic-bezier(0.25, 0.1, 0.25, 1),
+    background 0.3s cubic-bezier(0.25, 0.1, 0.25, 1),
+    border-bottom-color 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+  
+  /* No border in default state */
+  border-bottom: 1px solid transparent;
+  
+  /* Performance: Remove will-change to prevent layering issues */
+  transform: translateZ(0);
+}
+
+/* Paint-friendly stuck state - JS toggles this class via IntersectionObserver */
+.qa-header.is-stuck {
+  /* Enhanced shadow for sticky state feedback */
+  box-shadow: 
+    0 4px 6px -1px rgba(0, 0, 0, 0.15), 
+    0 2px 4px -1px rgba(0, 0, 0, 0.1);
+  
+  /* Enhanced backdrop blur for stuck state */
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  
+  /* Enhanced background with subtle gradient for stuck state */
+  background: linear-gradient(135deg, 
+    rgba(17, 24, 39, 0.98) 0%, 
+    rgba(31, 41, 55, 0.96) 100%
+  );
+  
+  /* Add underline border when stuck */
+  border-bottom: 1px solid rgba(75, 85, 99, 0.5);
+}
+
+/* IntersectionObserver sentinels for question zone detection */
+.qa-sentinel-top, 
+.qa-sentinel-bottom {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  pointer-events: none;
+  visibility: hidden; /* Invisible but detectable by IntersectionObserver */
+  z-index: -1;
+  
+  /* Performance: no transitions on sentinels */
+  transition: none !important;
+  transform: none !important;
+}
+
+.qa-sentinel-top {
+  /* Position precisely at the start of each question section */
+  top: 0;
+  left: 0;
+}
+
+.qa-sentinel-bottom {
+  /* Position at the end of question section (if needed for future features) */
+  bottom: 0;
+  left: 0;
+}
+
+.qa-header:hover {
+  /* Subtle interaction feedback */
+  box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.12);
+}
+
+/* Enhanced hover for stuck headers */
+.qa-header.is-stuck:hover {
+  box-shadow: 
+    0 6px 8px -2px rgba(0, 0, 0, 0.18), 
+    0 3px 5px -1px rgba(0, 0, 0, 0.12);
+  transform: translateZ(0) scale(1.002);
+}
+
+/* Keep headers compact to reduce content space usage */
+.qa-header {
+  padding: 0.75rem 1rem; /* Compact padding */
+  min-height: auto; /* Allow natural sizing */
+}
+
+/* Prevent unnecessary repaints by keeping transform stable */
+.qa-header:not(.is-stuck) {
+  transform: translateZ(0);
+}
+
+.qa-content {
+  /* Ensure content has proper spacing and doesn't interfere with sticky header */
+  position: relative;
+  z-index: 1;
+  background-color: rgb(17, 24, 39); /* bg-gray-900 to match overall background */
+  
+  /* Minimum height to ensure sticky behavior works properly */
+  min-height: 200px;
+}
+
+.qa-body {
+  position: relative;
+  z-index: 1;
+}
+
+/* Bounded scroll container for sticky positioning */
+.messages-scroll-container {
+  /* Required for sticky positioning to work */
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+  
+  /* Critical: no transforms on sticky container */
+  transform: none;
+  will-change: scroll-position;
+  
+  /* Smooth scrolling experience */
+  scroll-behavior: smooth;
+  
+  /* Prevent scrollbar from interfering with sticky elements */
+  scrollbar-gutter: stable;
+  
+  /* Ensure proper stacking context for sticky children */
+  position: relative;
+  z-index: 0;
+}
+
+/* Enhanced sticky positioning for better browser support */
+@supports (position: sticky) {
+  .qa-header {
+    position: sticky;
+  }
+}
+
+/* Fallback for older browsers */
+@supports not (position: sticky) {
+  .qa-header {
+    position: relative;
+    /* Graceful degradation - headers will still be visible but not sticky */
+  }
+}
+
+/* Perplexity-style tabs positioning under sticky headers */
+.qa-tabs {
+  /* Position tabs directly under the sticky header */
+  position: sticky;
+  top: 60px; /* Adjust based on header height */
+  z-index: 9; /* Slightly lower than header but above content */
+  
+  /* Background styling to match design */
+  background-color: rgb(17, 24, 39); /* bg-gray-900 */
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  
+  /* Smooth transitions */
+  transition: all 0.2s ease-in-out;
+}
+
+/* Enhanced tab button styling */
+.qa-tabs button[role="tab"] {
+  /* Smooth transitions for all interactive states */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Ensure proper text rendering */
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  
+  /* Prevent text selection and unwanted focus behavior */
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  
+  /* Prevent header selection when clicking tabs */
+  outline: none;
+}
+
+/* Prevent header text selection when tabs are clicked */
+.qa-header {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Allow text selection only for the question content */
+.qa-question-text {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
+/* Active tab enhanced styling */
+.qa-tabs button[role="tab"][aria-selected="true"] {
+  /* Subtle shadow for active state */
+  box-shadow: 
+    0 1px 3px 0 rgba(0, 0, 0, 0.1),
+    0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  
+  /* Prevent text selection on active tabs */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Tab hover enhancements */
+.qa-tabs button[role="tab"]:hover:not([aria-selected="true"]) {
+  /* Subtle background lift on hover */
+  background-color: rgba(55, 65, 81, 0.7); /* gray-700/70 */
+  transform: translateY(-0.5px);
+}
+
+/* Badge styling within tabs */
+.qa-tabs button[role="tab"] span[class*="bg-gray"] {
+  /* Smooth transitions for badges */
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  /* Ensure proper alignment */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* Tab container styling for Perplexity look */
+.qa-tabs nav > div {
+  /* Subtle background with border radius */
+  background: rgba(31, 41, 55, 0.8); /* gray-800/80 */
+  border: 1px solid rgba(55, 65, 81, 0.5); /* gray-700/50 */
+  box-shadow: 
+    0 1px 3px 0 rgba(0, 0, 0, 0.1),
+    0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* Ensure proper spacing between tabs */
+.qa-tabs button[role="tab"] + button[role="tab"] {
+  margin-left: 2px;
+}
+
+/* Responsive adjustments for tabs */
+@media (max-width: 640px) {
+  .qa-tabs nav > div {
+    /* Stack tabs on very small screens if needed */
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  
+  .qa-tabs button[role="tab"] {
+    /* Smaller padding on mobile */
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  
+  .qa-tabs button[role="tab"] span:not([class*="bg-"]) {
+    /* Hide text on very small screens, keep icons */
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .qa-tabs button[role="tab"] span:not([class*="bg-"]) {
+    display: none;
+  }
+}
+
+/* Prevent sticky headers from stacking too heavily */
+.qa-header + .qa-header {
+  /* If multiple sticky headers would overlap, add slight offset */
+  top: 0;
+}
+
+/* Responsive adjustments for sticky headers */
+@media (max-width: 768px) {
+  .qa-header {
+    /* Slightly reduce padding on mobile for more content area */
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  
+  .qa-content {
+    /* Ensure adequate spacing on mobile */
+    min-height: 150px;
+  }
+}
+
+/* Accessibility improvements */
+.qa-header:focus-within {
+  outline: 2px solid rgb(59, 130, 246); /* blue-500 */
+  outline-offset: -2px;
+}
+
+/* Prevent text selection issues with sticky headers */
+.qa-header h2 {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
+/* Enhanced Perplexity-style Q/A Interface - Clean CSS without @apply */
+
+/* Stuck State Enhanced Styling */
+.qa-header.is-stuck {
+  /* Enhanced shadow for stuck state */
+  box-shadow: 
+    0 4px 25px -5px rgba(0, 0, 0, 0.25),
+    0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  
+  /* Subtle background adjustment */
+  background: linear-gradient(135deg, 
+    rgba(17, 24, 39, 0.99) 0%, 
+    rgba(31, 41, 55, 0.97) 100%
+  );
+  
+  /* Enhanced backdrop blur */
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  
+  /* Slight border enhancement */
+  border-bottom-color: rgba(75, 85, 99, 0.4);
+}
+
+/* Smooth scrolling behavior */
+.messages-scroll-container {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch; /* iOS momentum scrolling */
+}
+
+/* Focus indicators for accessibility */
+.qa-header:focus-visible,
+.qa-tabs button:focus-visible {
+  outline: 2px solid rgb(59 130 246);
+  outline-offset: 2px;
 }
 
 /* Markdown styling in chat messages */
@@ -149,3 +1067,164 @@
 .prose-chat th {
   @apply bg-gray-100 font-medium;
 }
+
+/* Enhanced Web Search Links - Perplexity Style */
+.line-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.line-clamp-1 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+/* Favicon loading animation */
+@keyframes favicon-pulse {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.favicon-loading {
+  animation: favicon-pulse 1.5s ease-in-out infinite;
+}
+
+/* Enhanced source card hover effects */
+.source-card-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.source-card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 
+    0 10px 25px -5px rgba(0, 0, 0, 0.25),
+    0 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+
+/* Citation link styling - Superscript style like GPT/Perplexity */
+.citation-link {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-decoration: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  white-space: nowrap;
+}
+
+.citation-link:hover {
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.citation-link:active {
+  transform: translateY(0);
+}
+
+/* Citation badge animations */
+.citation-badge {
+  transition: all 0.15s ease-in-out;
+}
+
+.citation-badge:hover {
+  transform: scale(1.05);
+}
+
+/* Dropdown animation */
+.dropdown-enter {
+  animation: dropdown-fade-in 0.15s ease-out;
+}
+
+@keyframes dropdown-fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Copy success feedback */
+.copy-success {
+  animation: copy-success 0.3s ease-out;
+}
+
+@keyframes copy-success {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+    background-color: rgba(34, 197, 94, 0.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Smooth transitions for all interactive elements */
+.interactive-element {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.interactive-element:hover {
+  transform: translateY(-0.5px);
+}
+
+/* Enhanced focus states for accessibility */
+.enhanced-focus:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+/* Glassmorphism effect for dropdowns */
+.glass-dropdown {
+  background: rgba(31, 41, 55, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Text gradient effect for citation numbers */
+.citation-gradient {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Responsive font scaling */
+@media (max-width: 640px) {
+  .source-card-title {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  
+  .source-card-meta {
+    font-size: 0.75rem;
+  }
+  
+  .source-card-snippet {
+    font-size: 0.75rem;
+    line-height: 1.125rem;
+  }
+}
+
+/* Inline citation hover previews (appended) */
+.citation-enabled .citation-ref { position: relative; }
+.citation-enabled .citation-ref > .citation-tooltip { pointer-events: none; }
+.citation-enabled .citation-ref:hover > .citation-tooltip,
+.citation-enabled .citation-ref:focus-within > .citation-tooltip { display: block; }
+.citation-enabled .citation-tooltip { display: none; }
+.citation-enabled .citation-ref[data-flagged="true"] > button { color: #fbbf24; }

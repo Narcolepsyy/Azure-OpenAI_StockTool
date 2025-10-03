@@ -1,0 +1,71 @@
+/* KaTeX Dark Theme Overrides */
+.katex {
+  color: #e5e7eb !important; /* gray-200 for better readability */
+}
+
+.katex .mord.text {
+  color: #e5e7eb !important;
+}
+
+.katex .mfrac .frac-line {
+  border-bottom-color: #e5e7eb !important;
+}
+
+.katex .sqrt .sqrt-line {
+  border-top-color: #e5e7eb !important;
+}
+
+.katex .accent .accent-body {
+  color: #e5e7eb !important;
+}
+
+/* Math operators */
+.katex .mbin, .katex .mrel {
+  color: #93c5fd !important; /* blue-300 for operators */
+}
+
+/* Numbers */
+.katex .mord.mathdefault {
+  color: #fbbf24 !important; /* amber-400 for numbers */
+}
+
+/* Parentheses and brackets */
+.katex .mopen, .katex .mclose {
+  color: #a78bfa !important; /* violet-400 for delimiters */
+}
+
+/* Functions */
+.katex .mop {
+  color: #34d399 !important; /* emerald-400 for functions */
+}
+
+/* Display math blocks */
+.katex-display {
+  margin: 1rem 0 !important;
+  padding: 0.5rem !important;
+  background-color: rgba(17, 24, 39, 0.3) !important; /* gray-900 with opacity */
+  border-radius: 0.375rem !important;
+  border: 1px solid rgba(75, 85, 99, 0.3) !important; /* gray-600 with opacity */
+}
+
+/* Inline math */
+.katex {
+  background-color: rgba(31, 41, 55, 0.4) !important; /* gray-800 with opacity */
+  padding: 0.125rem 0.25rem !important;
+  border-radius: 0.25rem !important;
+  margin: 0 0.125rem !important;
+}
+
+/* Japanese text within equations */
+.katex .text {
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Yu Gothic", "Meiryo", sans-serif !important;
+}
+
+/* Error styling */
+.katex-error {
+  color: #f87171 !important; /* red-400 */
+  background-color: rgba(127, 29, 29, 0.2) !important; /* red-900 with opacity */
+  border: 1px solid #dc2626 !important; /* red-600 */
+  border-radius: 0.25rem !important;
+  padding: 0.25rem !important;
+}

@@ -15,15 +15,47 @@ logger = logging.getLogger(__name__)
 _response_cache = TTLCache(maxsize=1000, ttl=RESPONSE_CACHE_TTL)
 _simple_query_cache = TTLCache(maxsize=500, ttl=SIMPLE_QUERY_CACHE_TTL)
 
+# Pre-compiled regex patterns for performance optimization
+_WHITESPACE_PATTERN = re.compile(r'\s+')
+_JAPANESE_CHAR_PATTERN = re.compile(r'[\u3040-\u30ff\u4e00-\u9faf]')
+_ASCII_PUNCTUATION_PATTERN = re.compile(r'[!@#$%^&*(),.?":{}|<>]')
+_NON_WORD_PATTERN = re.compile(r'[^\w\s]')
+
+# Pre-compiled Japanese-specific patterns for optimization
+_JAPANESE_SIMPLE_PATTERNS = [
+    re.compile(r'.*株価.*'),  # Stock price
+    re.compile(r'.*価格.*'),  # Price
+    re.compile(r'.*現在.*'),  # Current
+    re.compile(r'.*終値.*'),  # Closing price
+    re.compile(r'.*銘柄.*'),  # Stock symbol
+]
+
+# Pre-compiled stock price query patterns
+_STOCK_PRICE_PATTERNS = [
+    re.compile(r'(?i).*(price|quote|trading|current).*\b([A-Z]{1,5})\b'),
+    re.compile(r'(?i)\b([A-Z]{1,5})\b.*(price|quote|stock)'),
+    re.compile(r'(?i)what.*(price|cost|trading).*(stock|share)'),
+    # Japanese patterns
+    re.compile(r'.*([A-Z]{1,5}).*株価.*'),
+    re.compile(r'.*([A-Z]{1,5}).*価格.*'),
+    re.compile(r'.*([A-Z]{1,5}).*現在.*'),
+]
+
 def _normalize_query(query: str) -> str:
-    """Normalize query for cache key generation."""
+    """Normalize query for cache key generation with Japanese support."""
     # Convert to lowercase, remove extra whitespace, normalize punctuation
-    normalized = re.sub(r'\s+', ' ', query.lower().strip())
-    normalized = re.sub(r'[^\w\s]', '', normalized)  # Remove punctuation
+    normalized = _WHITESPACE_PATTERN.sub(' ', query.lower().strip())
+    # For Japanese, preserve hiragana, katakana, and kanji
+    if _JAPANESE_CHAR_PATTERN.search(normalized):
+        # Japanese text - only remove ASCII punctuation
+        normalized = _ASCII_PUNCTUATION_PATTERN.sub('', normalized)
+    else:
+        # English text - remove all punctuation
+        normalized = _NON_WORD_PATTERN.sub('', normalized)
     return normalized
 
 def _generate_cache_key(query: str, model: str, context_hash: Optional[str] = None) -> str:
-    """Generate cache key for query."""
+    """Generate cache key for query with Japanese optimization."""
     normalized_query = _normalize_query(query)
     key_data = f"{normalized_query}|{model}"
     if context_hash:
@@ -49,35 +81,46 @@ def is_simple_query(query: str) -> bool:
         ql = (query or "").lower()
         if any(k in ql for k in ("news", "headline", "headlines", "article", "articles")):
             return False
+        # Japanese news keywords
+        if any(k in ql for k in ("ニュース", "記事", "報道", "発表")):
+            return False
     except Exception:
         pass
 
     if not SIMPLE_QUERY_PATTERNS:
         return False
     
+    # Check English patterns
     for pattern in SIMPLE_QUERY_PATTERNS:
         if re.match(pattern, (query or "").strip()):
             return True
+
+    # Check Japanese patterns (now pre-compiled)
+    for pattern in _JAPANESE_SIMPLE_PATTERNS:
+        if pattern.search(query or ""):
+            return True
+
     return False
 
 def is_stock_price_query(query: str) -> bool:
-    """Detect stock price queries for fast processing."""
-    patterns = [
-        r'(?i).*(price|quote|trading|current).*\b([A-Z]{1,5})\b',
-        r'(?i)\b([A-Z]{1,5})\b.*(price|quote|stock)',
-        r'(?i)what.*(price|cost|trading).*(stock|share)',
-    ]
-    for pattern in patterns:
-        if re.search(pattern, query):
+    """Detect stock price queries for fast processing with Japanese support."""
+    for pattern in _STOCK_PRICE_PATTERNS:
+        if pattern.search(query):
             return True
     return False
 
 def _is_news_like(query: str) -> bool:
     try:
         ql = (query or "").lower()
-        return any(k in ql for k in ("news", "headline", "headlines", "article", "articles"))
+        # English news keywords
+        if any(k in ql for k in ("news", "headline", "headlines", "article", "articles")):
+            return True
+        # Japanese news keywords
+        if any(k in ql for k in ("ニュース", "記事", "報道", "発表")):
+            return True
     except Exception:
-        return False
+        pass
+    return False
 
 def get_cached_response(query: str, model: str, messages: list = None) -> Optional[Dict[str, Any]]:
     """Get cached response if available."""

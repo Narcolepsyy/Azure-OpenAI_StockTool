@@ -26,7 +26,7 @@ def get_azure_client() -> Optional[AzureOpenAI]:
                 azure_endpoint=_normalize_azure_endpoint(AZURE_OPENAI_ENDPOINT),
                 # Optimized performance settings
                 max_retries=2,  # Reduced from 3 for faster failure
-                timeout=60,     # Reduced default timeout
+                timeout=40,     # Optimized: reduced from 60 for faster responses
                 default_headers={
                     "User-Agent": "Azure-OpenAI-Stock-Tool/1.0",
                     "Connection": "keep-alive"  # Connection pooling
@@ -48,7 +48,7 @@ def get_openai_client() -> Optional[OpenAI]:
             kwargs = {
                 "api_key": OPENAI_API_KEY,
                 "max_retries": 2,  # Reduced from 3
-                "timeout": 60,     # Reduced default timeout
+                "timeout": 40,     # Optimized: reduced from 60 for faster responses
                 "default_headers": {
                     "User-Agent": "Azure-OpenAI-Stock-Tool/1.0",
                     "Connection": "keep-alive"
@@ -76,8 +76,8 @@ def get_client_for_model(model_key: str, timeout: Optional[int] = None) -> tuple
 
     # Prepare optimized configuration
     config = {
-        "timeout": timeout or model_config.get("timeout", 60),
-        "max_completion_tokens": model_config.get("max_completion_tokens", 1500),
+        "timeout": timeout or model_config.get("timeout", 40),  # Optimized: reduced from 60
+        "max_completion_tokens": model_config.get("max_completion_tokens", 800),  # Optimized: reduced from 1500
         "temperature": model_config.get("temperature", 0.7)
     }
 

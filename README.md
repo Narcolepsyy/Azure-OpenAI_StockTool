@@ -1,9 +1,155 @@
-# 📈 Azure-OpenAI StockTool DEMO – Chat with the Market
-[DEMO VIDEO](https://drive.google.com/file/d/1KjNrVTqb1ue2jdfk63n7E46ZzFNRsf0N/view?usp=sharing)
+# Azure-OpenAI_StockTool
 
 ## 概要
 
 Azure-OpenAI_StockToolは、FastAPIとAzure/OpenAI（GPTモデル）を活用し、株価情報の取得・対話型AIアシスタント機能を提供するWebアプリケーションです。yfinance APIを用いて、リアルタイムの株価や企業情報、関連ニュース、リスク指標などを取得できます。フロントエンドはReact (Vite) を採用しています。
+
+## 📁 Project Structure
+
+This project is organized into clear, modular directories:
+
+```
+Azure-OpenAI_StockTool/
+├── app/                    # Backend application code
+│   ├── auth/              # Authentication & JWT
+│   ├── core/              # Configuration & settings
+│   ├── models/            # Database models & schemas
+│   ├── routers/           # API endpoints
+│   ├── services/          # Business logic
+│   │   └── aws/          # AWS service integrations
+│   └── utils/             # Utilities & helpers
+├── frontend/              # React frontend (Vite + TypeScript)
+├── docs/                  # 📚 All documentation files
+├── tests/                 # 🧪 All test files
+├── scripts/               # 🔧 Setup & utility scripts
+├── demos/                 # 🎬 Demo & debug scripts
+├── html_demos/            # 🌐 HTML demonstration files
+├── knowledge/             # RAG knowledge base files
+├── lambda_functions/      # AWS Lambda functions
+├── localstack/            # LocalStack initialization scripts
+├── static/                # Static assets
+├── main.py               # FastAPI application entry point
+├── docker-compose.yml    # Docker orchestration
+└── Dockerfile            # Application container
+```
+
+**Key Directories:**
+- 📚 **docs/** - Complete documentation (40+ guides covering architecture, AWS, performance, etc.)
+- 🧪 **tests/** - Comprehensive test suite (60+ test files)
+- 🔧 **scripts/** - Setup scripts (`setup_localstack.sh`, `setup_dashboard.sh`, `verify_aws_resources.py`)
+- 🎬 **demos/** - Demo and debugging scripts
+- 🌐 **html_demos/** - Standalone HTML demonstrations
+
+See individual README files in each directory for detailed information.
+
+---
+
+## 🚀 AWS Integration with LocalStack
+
+This project includes **enterprise-grade AWS integrations** that you can run locally using LocalStack:
+
+- **S3** - Document storage for RAG knowledge base
+- **DynamoDB** - Distributed conversation storage with TTL
+- **SQS** - Asynchronous task queue
+- **SNS** - Notification system
+- **Lambda** - Scheduled stock updates
+- **CloudWatch** - Metrics and monitoring
+
+### Quick Start with LocalStack
+
+1. **Get LocalStack Auth Token** (Free):
+   - Sign up at: https://app.localstack.cloud/
+   - Get token from: https://app.localstack.cloud/workspace/auth-token
+   - Add to `.env`: `LOCALSTACK_AUTH_TOKEN="ls-your-token-here"`
+
+2. **Run Setup Script**:
+   ```bash
+   ./scripts/setup_localstack.sh
+   ```
+
+3. **Verify Resources**:
+   ```bash
+   python scripts/verify_aws_resources.py
+   ```
+
+4. **Run Tests**:
+   ```bash
+   python tests/test_aws_integration.py
+   ```
+
+**📖 Complete Guide**: See `docs/LOCALSTACK_SETUP_GUIDE.md` for detailed setup instructions.
+
+**🏗️ Architecture Details**: See `docs/AWS_INTEGRATION.md` for comprehensive AWS integration documentation.
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.11+
+- Docker & Docker Compose
+- Node.js 18+ (for frontend development)
+
+### 1. Clone and Setup Environment
+```bash
+# Clone repository
+git clone https://github.com/Narcolepsyy/Azure-OpenAI_StockTool.git
+cd Azure-OpenAI_StockTool
+
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 2. Configure Environment Variables
+```bash
+# Copy and edit .env file with your API keys
+# Required: At least one of OPENAI_API_KEY or AZURE_OPENAI_* keys
+# Optional: LOCALSTACK_AUTH_TOKEN (free from https://app.localstack.cloud/)
+
+# Example minimal .env:
+OPENAI_API_KEY=sk-your-key-here
+LOCALSTACK_AUTH_TOKEN=ls-your-token-here  # Optional but recommended
+```
+
+### 3. Start Services
+```bash
+# Start LocalStack (for AWS features)
+docker compose up -d localstack
+
+# Start backend
+python main.py
+```
+
+### 4. Access the Application
+- **Web Interface**: http://localhost:8000/app
+- **API Documentation**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/healthz
+
+### 5. Test Everything
+```bash
+# Run comprehensive test
+./scripts/test_quick_start.sh
+```
+
+### 6. Deploy Lambda Functions (Optional)
+```bash
+# Deploy automated stock data updater
+./scripts/deploy_lambda.sh
+
+# Create CloudWatch monitoring dashboard
+./scripts/create_cloudwatch_dashboard.sh
+
+# Test Lambda functions
+python scripts/test_lambda.py
+```
+
+**📖 Detailed Guides**: 
+- Complete walkthrough: `docs/GETTING_STARTED.md`
+- Lambda & CloudWatch: `docs/LAMBDA_AND_CLOUDWATCH_GUIDE.md`
 
 ---
 
@@ -31,6 +177,7 @@ Azure-OpenAI_StockToolは、FastAPIとAzure/OpenAI（GPTモデル）を活用し
 - **RAG (任意)** – `knowledge/` ディレクトリをChromaへインデックス
 - **リスク指標計算** – 年率ボラティリティ、Sharpe、最大ドローダウン、VaR、β(ベンチマーク)
 - **管理ログ/監査** – Adminユーザーでチャットログ閲覧
+- **リアルタイム株価ダッシュボード** – Finnhub WebSocketで2秒ごとに株価自動更新、ウォッチリスト管理
 
 ---
 
@@ -41,6 +188,10 @@ Azure-OpenAI_StockToolは、FastAPIとAzure/OpenAI（GPTモデル）を活用し
   - システムプロンプト（任意）
   - Azure OpenAIのデプロイメント名指定（任意）
   - 回答＆ツールコールの結果表示
+
+- **サイドバー (チャット一覧)**  
+  - セッションタイトルは Markdown の一部記法 (太字/斜体/コード) をインライン表示します。
+  - セキュリティのため HTML は無効化し、単一行に省略表示します（リンク等はプレーンテキスト）。
 
 - **株価クイック取得セクション**  
   - 銘柄入力欄（例：AAPL）
@@ -65,6 +216,7 @@ Azure-OpenAI_StockToolは、FastAPIとAzure/OpenAI（GPTモデル）を活用し
 | OPENAI_MODEL | 標準OpenAI利用時の既定モデル |
 | RAG_ENABLED | RAG有効可否 (true/false) |
 | AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT | RAG埋め込みモデル (Azure) |
+| FINNHUB_API_KEY | Finnhub API キー (リアルタイム株価ダッシュボード用) |
 
 ---
 
@@ -180,3 +332,4 @@ MIT License
 - Env vars:
   - `NEWS_CACHE_SIZE` (default 1024)
   - `NEWS_TTL_SECONDS` (default 300)
+

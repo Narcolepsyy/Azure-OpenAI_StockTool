@@ -48,6 +48,10 @@ For educational/strategy queries, give short, clear explanations directly."""
     conversation_id: Optional[str] = None
     reset: Optional[bool] = False
     stream: Optional[bool] = False  # Add streaming support
+    # Preferred language/locale for responses (e.g., 'en', 'ja')
+
+    locale: Optional[str] = "en"
+    capabilities: Optional[List[str]] = None
 
 class ChatResponse(BaseModel):
     content: str

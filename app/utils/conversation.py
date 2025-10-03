@@ -2,6 +2,7 @@
 import json
 import secrets
 import logging
+from functools import lru_cache
 from typing import List, Dict, Any, Optional, Tuple
 from cachetools import TTLCache
 from app.core.config import (
@@ -17,8 +18,10 @@ logger = logging.getLogger(__name__)
 CONV_CACHE = TTLCache(maxsize=CONV_CACHE_SIZE, ttl=CONV_TTL_SECONDS)
 SUMMARY_CACHE = TTLCache(maxsize=500, ttl=60 * 60 * 24)  # 24 hours
 
+# Token estimation cache - uses LRU cache for frequently computed strings
+@lru_cache(maxsize=2048)
 def estimate_tokens(text: str) -> int:
-    """Rough token estimation: ~4 chars per token for English text."""
+    """Rough token estimation: ~4 chars per token for English text. Cached for performance."""
     return max(1, len(text) // 4)
 
 def truncate_by_tokens(text: str, max_tokens: int) -> str:
@@ -35,23 +38,83 @@ def _new_conversation_id() -> str:
     """Generate a new conversation ID."""
     return secrets.token_hex(12)
 
+def _validate_message_sequence(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Validate message sequence and remove incomplete tool call/response pairs."""
+    if not messages:
+        return messages
+    
+    validated = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        role = msg.get('role', '')
+        
+        if role == 'assistant' and msg.get('tool_calls'):
+            # Assistant message with tool calls - check if all tool responses are present
+            tool_calls = msg.get('tool_calls', [])
+            expected_tool_call_ids = {tc.get('id') if hasattr(tc, 'get') else tc['id'] for tc in tool_calls}
+            
+            # Look ahead for corresponding tool messages
+            j = i + 1
+            found_tool_call_ids = set()
+            tool_responses = []
+            
+            while j < len(messages) and messages[j].get('role') == 'tool':
+                tool_msg = messages[j]
+                tool_call_id = tool_msg.get('tool_call_id')
+                if tool_call_id in expected_tool_call_ids:
+                    found_tool_call_ids.add(tool_call_id)
+                    tool_responses.append(tool_msg)
+                j += 1
+            
+            # Only include if all tool calls have responses
+            if found_tool_call_ids == expected_tool_call_ids:
+                validated.append(msg)
+                validated.extend(tool_responses)
+            else:
+                missing_ids = expected_tool_call_ids - found_tool_call_ids
+                logger.warning(f"Removing incomplete tool call group from conversation: missing responses for {missing_ids}")
+            
+            i = j  # Skip past the tool messages we've processed
+        elif role == 'tool':
+            # Check if there's a preceding assistant message with tool_calls that we kept
+            if (validated and 
+                validated[-1].get('role') == 'assistant' and 
+                validated[-1].get('tool_calls')):
+                # This tool message should have been processed in the assistant block above
+                logger.warning(f"Skipping extra tool message from conversation: {msg.get('tool_call_id', 'no_id')}")
+            else:
+                # Orphaned tool message
+                logger.warning(f"Removing orphaned tool message from conversation: {msg.get('tool_call_id', 'no_id')}")
+            i += 1
+        else:
+            validated.append(msg)
+            i += 1
+    
+    return validated
+
 def conv_get(conv_id: str) -> List[Dict[str, Any]]:
-    """Get conversation messages from cache."""
+    """Get conversation messages from cache with validation."""
     try:
         msgs = CONV_CACHE.get(conv_id) or []
         if not isinstance(msgs, list):
             msgs = []
-        return msgs
+        # Validate and clean up any orphaned tool messages
+        return _validate_message_sequence(msgs)
     except Exception:
         return []
 
 def conv_set(conv_id: str, msgs: List[Dict[str, Any]]):
-    """Set conversation messages in cache with size limits."""
+    """Set conversation messages in cache with size limits and validation."""
     try:
+        # Validate message sequence first
+        validated_msgs = _validate_message_sequence(msgs)
+        
         # Trim to last N user+assistant messages to bound size
-        if len(msgs) > MAX_CONV_MESSAGES:
-            msgs = msgs[-MAX_CONV_MESSAGES:]
-        CONV_CACHE[conv_id] = msgs
+        if len(validated_msgs) > MAX_CONV_MESSAGES:
+            validated_msgs = validated_msgs[-MAX_CONV_MESSAGES:]
+        
+        CONV_CACHE[conv_id] = validated_msgs
     except Exception:
         pass
 

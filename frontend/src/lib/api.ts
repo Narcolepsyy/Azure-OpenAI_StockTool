@@ -1,9 +1,13 @@
 export const apiBase = (): string => {
   const fromEnv = (import.meta as any).env?.VITE_API_BASE as string | undefined
   if (import.meta.env.DEV) {
-    return (fromEnv && fromEnv.trim()) || 'http://127.0.0.1:8000'
+    const base = (fromEnv && fromEnv.trim()) || 'http://127.0.0.1:8000'
+    console.log('[apiBase] DEV mode, returning:', base)
+    return base
   }
-  return (fromEnv && fromEnv.trim()) || window.location.origin
+  const base = (fromEnv && fromEnv.trim()) || window.location.origin
+  console.log('[apiBase] PROD mode, returning:', base)
+  return base
 }
 
 const apiKey = (import.meta as any).env?.VITE_APP_API_KEY as string | undefined
@@ -22,7 +26,7 @@ export function setToken(token: string | null) {
   } catch {}
 }
 
-function authHeaders(extra?: Record<string, string>): Record<string, string> {
+export function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = { ...(extra || {}) }
   const t = getToken()
   if (t) headers['Authorization'] = `Bearer ${t}`
@@ -39,27 +43,99 @@ async function tryRefresh(): Promise<User | null> {
   return data.user
 }
 
-async function fetchJson<T>(url: string, init: RequestInit & { retryOn401?: boolean } = {}): Promise<T> {
-  const { retryOn401, ...rest } = init
-  const res = await fetch(url, rest)
-  if (res.status === 401 && retryOn401) {
-    const u = await tryRefresh()
-    if (u) {
-      const again = await fetch(url, { ...rest, headers: authHeaders((rest.headers as any) || {}) })
-      if (!again.ok) {
-        let detail = `${again.status} ${again.statusText}`
-        try { const j = await again.json(); detail = (j as any).detail || JSON.stringify(j) } catch {}
-        throw new Error(detail)
+// Helper to create user-friendly error messages from network errors
+function createUserFriendlyError(error: any, url: string): Error {
+  // Handle network/fetch errors
+  if (error instanceof TypeError && error.message.includes('fetch')) {
+    return new Error('Connection failed')
+  }
+  if (error instanceof TypeError && (error.message.includes('NetworkError') || error.message.includes('Failed to fetch'))) {
+    return new Error('Unable to reach server')
+  }
+  if (error.name === 'AbortError') {
+    return new Error('Request cancelled')
+  }
+  if (error.message && error.message.toLowerCase().includes('timeout')) {
+    return new Error('Request timed out')
+  }
+  
+  // Return original error if it's already user-friendly
+  return error instanceof Error ? error : new Error(String(error))
+}
+
+// Helper to determine if an error is retryable
+function isRetryableError(error: any): boolean {
+  if (error instanceof TypeError && (
+    error.message.includes('fetch') || 
+    error.message.includes('NetworkError') || 
+    error.message.includes('Failed to fetch')
+  )) {
+    return true
+  }
+  if (error.message && error.message.toLowerCase().includes('timeout')) {
+    return true
+  }
+  return false
+}
+
+// Helper for exponential backoff retry logic
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 1000
+): Promise<T> {
+  let lastError: any
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation()
+    } catch (error) {
+      lastError = error
+      
+      // Don't retry if it's the last attempt or if the error is not retryable
+      if (attempt === maxRetries || !isRetryableError(error)) {
+        break
       }
-      return again.json()
+      
+      // Calculate delay with exponential backoff and jitter
+      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 500
+      console.log(`Request failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay.toFixed(0)}ms...`, error)
+      
+      await new Promise(resolve => setTimeout(resolve, delay))
     }
   }
-  if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`
-    try { const j = await res.json(); detail = (j as any).detail || JSON.stringify(j) } catch {}
-    throw new Error(detail)
-  }
-  return res.json()
+  
+  throw lastError
+}
+
+async function fetchJson<T>(url: string, init: RequestInit & { retryOn401?: boolean, maxRetries?: number } = {}): Promise<T> {
+  const { retryOn401, maxRetries = 3, ...rest } = init
+  
+  return withRetry(async () => {
+    try {
+      const res = await fetch(url, rest)
+      if (res.status === 401 && retryOn401) {
+        const u = await tryRefresh()
+        if (u) {
+          const again = await fetch(url, { ...rest, headers: authHeaders((rest.headers as any) || {}) })
+          if (!again.ok) {
+            let detail = `${again.status} ${again.statusText}`
+            try { const j = await again.json(); detail = (j as any).detail || JSON.stringify(j) } catch {}
+            throw new Error(detail)
+          }
+          return again.json()
+        }
+      }
+      if (!res.ok) {
+        let detail = `${res.status} ${res.statusText}`
+        try { const j = await res.json(); detail = (j as any).detail || JSON.stringify(j) } catch {}
+        throw new Error(detail)
+      }
+      return res.json()
+    } catch (error) {
+      throw createUserFriendlyError(error, url)
+    }
+  }, maxRetries)
 }
 
 export type ChatRequest = {
@@ -69,6 +145,7 @@ export type ChatRequest = {
   conversation_id?: string
   reset?: boolean
   stream?: boolean  // Add streaming support
+  locale?: 'en' | 'ja'
 }
 
 export type ChatResponse = {
@@ -103,18 +180,26 @@ export async function chatStream(
   async function startStream(): Promise<Response> {
     abortController = new AbortController()
     ;(window as any).__chatStreamAbortController = abortController
-    return fetch(`${apiBase()}/chat/stream`, {
-      method: 'POST',
-      headers: authHeaders({
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }),
-      body: JSON.stringify(req),
-      credentials: 'include',
-      signal: abortController.signal,
-    })
+    
+    return withRetry(async () => {
+      if (!abortController) {
+        abortController = new AbortController()
+        ;(window as any).__chatStreamAbortController = abortController
+      }
+      
+      return fetch(`${apiBase()}/chat/stream`, {
+        method: 'POST',
+        headers: authHeaders({
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }),
+        body: JSON.stringify(req),
+        credentials: 'include',
+        signal: abortController.signal,
+      })
+    }, 2) // Fewer retries for streaming to avoid long delays
   }
 
   try {
@@ -213,7 +298,10 @@ export async function chatStream(
       console.log('Stream was aborted')
       return
     }
-    onError(error instanceof Error ? error.message : 'Streaming failed')
+    
+    // Create user-friendly error message for streaming failures
+    const friendlyError = createUserFriendlyError(error, `${apiBase()}/chat/stream`)
+    onError(friendlyError.message)
   } finally {
     abortController = null
     ;(window as any).__chatStreamAbortController = null
@@ -294,20 +382,25 @@ export async function login(username: string, password: string): Promise<LoginRe
   const body = new URLSearchParams()
   body.set('username', username)
   body.set('password', password)
-  const res = await fetch(`${apiBase()}/auth/token`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
-    body,
-    credentials: 'include',
-  })
-  if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`
-    try { const j = await res.json(); detail = (j as any).detail || JSON.stringify(j) } catch {}
-    throw new Error(`Login failed: ${detail}`)
+  
+  try {
+    const res = await fetch(`${apiBase()}/auth/token`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/x-www-form-urlencoded' }),
+      body,
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      let detail = `${res.status} ${res.statusText}`
+      try { const j = await res.json(); detail = (j as any).detail || JSON.stringify(j) } catch {}
+      throw new Error(`Login failed: ${detail}`)
+    }
+    const data: LoginResponse = await res.json()
+    setToken(data.access_token)
+    return data
+  } catch (error) {
+    throw createUserFriendlyError(error, `${apiBase()}/auth/token`)
   }
-  const data: LoginResponse = await res.json()
-  setToken(data.access_token)
-  return data
 }
 
 export async function refresh(): Promise<LoginResponse> {

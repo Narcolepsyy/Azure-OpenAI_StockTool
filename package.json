@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@todiagram/todiagram-mcp": "^0.0.43"
+  }
+}

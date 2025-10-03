@@ -11,7 +11,10 @@ engine = create_engine(
     DATABASE_URL, 
     echo=False, 
     future=True, 
-    connect_args={"check_same_thread": False} if _sqlite else {}
+    connect_args={
+        "check_same_thread": False,
+        "timeout": 20  # 20 seconds timeout for busy database
+    } if _sqlite else {}
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 Base = declarative_base()
@@ -68,6 +71,24 @@ class PasswordReset(Base):
     used = Column(Boolean, default=False, nullable=False)
 
     user = relationship("User")
+
+# Enable SQLite WAL mode for better concurrent access
+if _sqlite:
+    from sqlalchemy import event
+    
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        """Set SQLite pragmas for optimal performance and concurrency."""
+        cursor = dbapi_connection.cursor()
+        # Enable WAL mode for better concurrent reads
+        cursor.execute("PRAGMA journal_mode=WAL")
+        # Set synchronous mode to NORMAL for better performance
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        # Increase cache size (negative value means KB)
+        cursor.execute("PRAGMA cache_size=-64000")  # 64MB cache
+        # Enable foreign key constraints
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 # Create tables
 Base.metadata.create_all(bind=engine)

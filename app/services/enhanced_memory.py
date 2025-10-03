@@ -9,6 +9,7 @@ from app.core.config import (
     RAG_ENABLED, CHUNK_MAX_TOKENS, MAX_TOKENS_PER_TURN,
     CONV_SUMMARY_THRESHOLD
 )
+from app.utils.memory_monitor import get_memory_monitor, memory_aware_operation, is_memory_pressure
 from app.services.openai_client import get_client_for_model
 from app.services.rag_service import rag_search, _get_vectorstore
 from app.utils.conversation import estimate_tokens, truncate_by_tokens
@@ -31,10 +32,12 @@ class MemoryService:
     def __init__(self):
         self.gpt4o_mini_key = "gpt-4o-mini"
         self._background_tasks = set()  # Track background tasks
+        self._max_background_tasks = 5  # Limit concurrent background tasks
 
+    @memory_aware_operation("store_conversation")
     async def store_conversation_memory(self, conv_id: str, messages: List[Dict[str, Any]],
-                                      user_id: Optional[str] = None) -> None:
-        """Store conversation in appropriate memory layers with performance optimizations."""
+                                      user_id: Optional[str] = None, use_ai_extraction: bool = False) -> None:
+        """Store conversation in memory with async processing."""
         try:
             # Always store in short-term memory (fast operation)
             SHORT_TERM_CACHE[conv_id] = {
@@ -47,21 +50,55 @@ class MemoryService:
             # Performance optimization: Only do expensive operations periodically
             message_count = len(messages)
 
+            # Check memory pressure before creating background tasks
+            under_memory_pressure = is_memory_pressure()
+
             # Extract entities only every 3rd message or on significant content
-            if self._should_extract_entities(conv_id, message_count):
+            # But limit concurrent background tasks to prevent resource drain
+            if (self._should_extract_entities(conv_id, message_count) and 
+                len(self._background_tasks) < self._max_background_tasks and
+                not under_memory_pressure):
                 # Run entity extraction in background to not block response
                 task = asyncio.create_task(self._extract_and_store_entities_async(messages, conv_id, user_id))
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
+            elif len(self._background_tasks) >= self._max_background_tasks:
+                logger.debug(f"Skipping entity extraction - too many background tasks ({len(self._background_tasks)})")
+            elif under_memory_pressure:
+                logger.debug("Skipping entity extraction - memory pressure detected")
 
             # Create summaries only when really needed and in background
-            if self._should_create_summary(conv_id, message_count):
+            # Also limit concurrent summary creation
+            if (self._should_create_summary(conv_id, message_count) and 
+                len(self._background_tasks) < self._max_background_tasks and
+                not under_memory_pressure):
                 task = asyncio.create_task(self._create_summaries_async(conv_id, messages, user_id))
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
+            elif len(self._background_tasks) >= self._max_background_tasks:
+                logger.debug(f"Skipping summary creation - too many background tasks ({len(self._background_tasks)})")
+            elif under_memory_pressure:
+                logger.debug("Skipping summary creation - memory pressure detected")
 
         except Exception as e:
             logger.error(f"Error storing conversation memory: {e}")
+    
+    def cleanup_background_tasks(self) -> int:
+        """Clean up completed background tasks and return count of active tasks."""
+        completed_tasks = [task for task in self._background_tasks if task.done()]
+        for task in completed_tasks:
+            self._background_tasks.discard(task)
+        return len(self._background_tasks)
+    
+    def get_background_task_stats(self) -> Dict[str, Any]:
+        """Get statistics about background tasks for monitoring."""
+        active_count = self.cleanup_background_tasks()  # Clean up first
+        return {
+            "active_tasks": active_count,
+            "max_tasks": self._max_background_tasks,
+            "utilization_percent": (active_count / self._max_background_tasks) * 100,
+            "status": "healthy" if active_count < self._max_background_tasks else "at_capacity"
+        }
 
     def _should_extract_entities(self, conv_id: str, message_count: int) -> bool:
         """Determine if entity extraction should run (performance optimization)."""
@@ -94,6 +131,7 @@ class MemoryService:
             current_time - last_summary > 600  # 10 minutes
         )
 
+    @memory_aware_operation("retrieve_memory")
     async def retrieve_contextual_memory(self, query: str, conv_id: str,
                                        user_id: Optional[str] = None) -> Dict[str, Any]:
         """Retrieve relevant memory from all layers with fast retrieval."""
@@ -547,6 +585,9 @@ Summary:"""
 
     def get_memory_stats(self) -> Dict[str, Any]:
         """Get memory service statistics for monitoring."""
+        monitor = get_memory_monitor()
+        system_memory = monitor.get_current_memory_usage()
+        
         return {
             "short_term_count": len(SHORT_TERM_CACHE),
             "medium_term_count": len(MEDIUM_TERM_CACHE),
@@ -554,7 +595,13 @@ Summary:"""
             "entity_count": len(ENTITY_MEMORY),
             "background_tasks": len(self._background_tasks),
             "active_extractions": len(LAST_ENTITY_EXTRACTION),
-            "active_summaries": len(LAST_SUMMARY_CREATION)
+            "active_summaries": len(LAST_SUMMARY_CREATION),
+            "system_memory": {
+                "process_mb": system_memory.process_memory_mb,
+                "system_percent": system_memory.system_memory_percent,
+                "available_mb": system_memory.available_memory_mb,
+                "gc_objects": system_memory.gc_objects_count
+            }
         }
 
 # Global memory service instance

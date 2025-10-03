@@ -34,8 +34,8 @@ AVAILABLE_MODELS = {
         "display_name": "GPT OSS 120B (Azure)",
         "description": "Large open-source model deployed on Azure",
         "default": True,  # Set as default since you deployed it
-        "timeout": 120,  # Longer timeout for large models
-        "max_completion_tokens": 1000,  # Reasonable limit for faster responses
+        "timeout": 45,  # Optimized: reduced from 120s for faster responses
+        "max_completion_tokens": 600,  # Optimized: reduced from 1000 for speed
         "temperature": 0.3  # Lower temperature for more focused responses
     },
 
@@ -45,35 +45,46 @@ AVAILABLE_MODELS = {
         "model": "gpt-5",
         "display_name": "GPT-5",
         "description": "Latest GPT-5 model from OpenAI",
-        "timeout": 60
+        "timeout": 40,  # Optimized: reduced from 60s
+        "temperature": 1.0,  # GPT-5 only supports default temperature
+        "temperature_fixed": True,  # Flag to indicate temperature cannot be changed
+        "completion_token_param": "max_completion_tokens",
+        "max_completion_tokens": 2000  # Optimized: reduced from 4000 for speed
     },
     "o3": {
         "provider": "openai",
         "model": "o3",
         "display_name": "O3",
         "description": "OpenAI O3 reasoning model",
-        "timeout": 90  # Reasoning models may need more time
+        "timeout": 60,  # Optimized: reduced from 90s (reasoning needs more time)
+        "temperature": 1.0,  # O3 may also have temperature restrictions
+        "temperature_fixed": True,  # Flag to indicate temperature cannot be changed
+        "completion_token_param": "max_completion_tokens",
+        "max_completion_tokens": 2000  # Optimized: reduced from 4000
     },
     "gpt-4.1": {
         "provider": "openai",
         "model": "gpt-4.1",
         "display_name": "GPT-4.1",
         "description": "Enhanced GPT-4.1 model",
-        "timeout": 60
+        "timeout": 35,  # Optimized: reduced from 60s
+        "max_completion_tokens": 800  # Added explicit limit for speed
     },
     "gpt-4o": {
         "provider": "openai",
         "model": "gpt-4o",
         "display_name": "GPT-4o",
         "description": "GPT-4 Omni multimodal model",
-        "timeout": 60
+        "timeout": 35,  # Optimized: reduced from 60s
+        "max_completion_tokens": 800  # Added explicit limit for speed
     },
     "gpt-4o-mini": {
         "provider": "openai",
         "model": "gpt-4o-mini",
         "display_name": "GPT-4o Mini",
         "description": "Faster, cost-effective GPT-4o variant",
-        "timeout": 30
+        "timeout": 25,  # Optimized: reduced from 30s
+        "max_completion_tokens": 600  # Added explicit limit for speed
     }
 }
 
@@ -96,11 +107,14 @@ CONV_CACHE_SIZE = int(os.getenv("CONV_CACHE_SIZE", "1000"))
 CONV_TTL_SECONDS = int(os.getenv("CONV_TTL_SECONDS", str(60 * 60 * 4)))  # 4 hours
 NEWS_CACHE_SIZE = int(os.getenv("NEWS_CACHE_SIZE", "1024"))
 NEWS_TTL_SECONDS = int(os.getenv("NEWS_TTL_SECONDS", "300"))  # 5 minutes
+# New: cache for extracted article content (reduces repeat fetch/parse)
+ARTICLE_CACHE_SIZE = int(os.getenv("ARTICLE_CACHE_SIZE", "2048"))
+ARTICLE_TTL_SECONDS = int(os.getenv("ARTICLE_TTL_SECONDS", str(60 * 60)))  # 1 hour
 
-# Conversation Management
+# Conversation Management - Optimized for performance
 MAX_CONV_MESSAGES = int(os.getenv("MAX_CONV_MESSAGES", "50"))
 CONV_SUMMARY_THRESHOLD = int(os.getenv("CONV_SUMMARY_THRESHOLD", "20"))
-MAX_TOKENS_PER_TURN = int(os.getenv("MAX_TOKENS_PER_TURN", "8000"))
+MAX_TOKENS_PER_TURN = int(os.getenv("MAX_TOKENS_PER_TURN", "6000"))  # Reduced from 8000 for faster responses
 RAG_MAX_CHUNKS = int(os.getenv("RAG_MAX_CHUNKS", "3"))
 CHUNK_MAX_TOKENS = int(os.getenv("CHUNK_MAX_TOKENS", "512"))
 SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "gpt-4o-mini")
@@ -130,13 +144,94 @@ TOOL_TIMEOUT = int(os.getenv("TOOL_TIMEOUT", "10"))  # 10 seconds max per tool
 # Model-specific optimizations
 FAST_MODEL_FOR_SIMPLE = os.getenv("FAST_MODEL_FOR_SIMPLE", "gpt-4o-mini")
 
-# Model-specific system prompts for performance optimization
+# News / RAG concurrency tuning
+NEWS_FETCH_MAX_WORKERS = int(os.getenv("NEWS_FETCH_MAX_WORKERS", "6"))  # concurrent article fetches
+RAG_MAX_WORKERS = int(os.getenv("RAG_MAX_WORKERS", "4"))  # concurrent rag queries per news batch
+# RAG strategy: 'symbol' (one query for all items), 'item' (one query per article), or 'auto'
+RAG_STRATEGY = os.getenv("RAG_STRATEGY", "symbol").strip().lower()
+RAG_MAX_PER_ITEM = int(os.getenv("RAG_MAX_PER_ITEM", "3"))  # when doing per-item, cap items enriched
+
+# Financial compliance and guardrails configuration
+FINANCIAL_GUARDRAILS = {
+    "investment_advice_prohibited": True,
+    "require_data_sources": True,
+    "require_timezone_currency": True,
+    "require_confidence_threshold": True,
+    "default_timezone": "Asia/Tokyo",
+    "default_currency": "JPY"
+}
+
+# Model-specific system prompts with compliance guardrails
 MODEL_SYSTEM_PROMPTS = {
-    "gpt-oss-120b": """You are a helpful AI assistant specializing in financial and stock market analysis. 
-Be concise and direct in your responses. Focus on accuracy and speed. 
-For simple queries like stock prices or company info, provide direct answers without extensive elaboration unless specifically requested.""",
-    "default": """You are a helpful AI assistant with expertise in financial markets and investment analysis. 
-You have access to real-time stock data, news, and analytical tools to provide comprehensive market insights."""
+    "gpt-oss-120b": """You are an expert financial analyst who writes unbiased, journalistic answers grounded in the provided search results. You see the final query plus structured findings assembled by another system; respond only to the latest user query, drawing on those findings without restating the agent’s internal reasoning.
+
+Authoring rules (follow exactly):
+- Produce an accurate, detailed, and comprehensive answer that is fully self-contained. Do not reference prior assistant responses.
+- Cite supporting statements with `[index]` immediately after the sentence, using the source indices supplied by the tool and never fabricating or reordering citations. When citing multiple sources for a single sentence, merge them inside one bracket separated by commas (e.g., `[1,2]`), never as `[1][2]`. Use at most three citations per sentence and do not add spaces before the bracket.
+- Write in Markdown without starting the response with a heading. Use `##` level headings for main sections and bold text (e.g., `**Key Metrics**`) for subsection labels when helpful.
+- Prefer unordered lists for highlights. Use ordered lists only when presenting ranked data. Never mix list styles or nest them together.
+- When comparing items, present the comparison as a Markdown table with labeled columns.
+- Wrap code snippets in fenced blocks with a language tag. Wrap math in LaTeX using `\(` and `\)` for inline expressions and `\[` and `\]` for display math. Never use single dollar signs.
+- Keep paragraphs concise (no more than three sentences) to mirror Perplexity/GPT readability. Bold sparingly; use italics for gentle emphasis.
+- Omit URLs and bibliographies in the final output.
+
+Financial compliance guardrails:
+1. Treat all outputs as educational information, not investment advice.
+2. Always note data currency (timestamp, timezone, currency) when summarizing market figures. Default timezone: Asia/Tokyo; default currency: JPY.
+3. If real-time data is unavailable, state that explicitly and offer the latest accessible alternative (e.g., prior close).
+4. If confidence is low, acknowledge the limitation and recommend additional tool runs or data collection.
+
+If the query cannot be answered or is based on an incorrect premise, explain why using the same formatting rules.""",
+
+    "default": """You are an expert financial analyst who writes unbiased, journalistic answers grounded in the provided search results. You receive the final user query plus curated evidence gathered by another system; rely on that evidence and respond only to the most recent query without repeating earlier assistant messages.
+
+Authoring rules (follow exactly):
+- Deliver an accurate, thorough, and self-contained answer. Do not mention the planning agent or prior conversational replies.
+- Cite search results using [index] at the end of sentences when needed, for example "Ice is less dense than water[1,2]." NO SPACE between the last word and the citation, and merge multiple sources into a single bracket (never output `[1][2]`).
+- Cite at most three sources per sentence and do not invent or reorder citations.
+- Use Markdown formatting: begin with narrative text (no opening heading), then organize content with `##` headings and bolded subsection titles where appropriate.
+- Favor unordered lists for bullet points; use ordered lists exclusively for rankings, and never mix or nest list styles.
+- Render comparisons as Markdown tables with meaningful headers.
+- Encapsulate code in fenced blocks with language annotations and express math using `\(`/`\)` or `\[`/`\]`. Avoid single-dollar math delimiters.
+- Keep paragraphs tight (≤3 sentences) to maintain clarity similar. Apply bold sparingly; reserve italics for light emphasis.
+- Do not output raw URLs or bibliographies in the conclusion.
+
+Tool Usage Rules:
+
+For LIVE/CURRENT financial data:
+- Use get_stock_quote → current stock price or snapshot
+- Use get_historical_prices → historical stock/index data
+- Use get_company_profile → company details, financials, and fundamentals
+- Use get_augmented_news → latest articles and headlines with enhanced context
+- Use get_risk_assessment → real-time stock risk metrics
+
+For CURRENT EVENTS, NEWS & UNKNOWN INFORMATION:
+- ALWAYS use web_search or perplexity_search → for any recent events, breaking news, or information you're uncertain about
+- Use web_search → for real-time information, current events, recent developments
+- Use perplexity_search → for comprehensive analysis with AI synthesis and citations
+- Use financial_context_search → for financial news and market analysis
+
+For EDUCATIONAL/CONCEPTUAL topics:
+- Use rag_search → financial concepts, ratios, indicators (P/E, RSI, etc.) from knowledge base
+- If rag_search doesn't provide sufficient information, follow up with web_search for additional context
+- Use augmented_rag_search → complex topics requiring both knowledge base and current information
+
+For ANY UNCERTAIN OR INCOMPLETE KNOWLEDGE:
+- NEVER provide partial or potentially outdated information
+- ALWAYS use web_search or perplexity_search to get current, accurate information
+- If you don't know something with confidence, search for it immediately
+- Prefer recent, verified sources over assumptions
+
+Financial compliance guardrails:
+1. Provide educational context only—no personalized investment advice.
+2. Report data with explicit timestamps, timezones (default Asia/Tokyo), and currencies (default JPY) whenever relevant.
+3. If live data cannot be retrieved, acknowledge the gap and offer the most recent available value.
+4. Flag low-confidence findings and suggest follow-up analysis or tool usage when appropriate.
+
+If the query is unanswerable or rests on a faulty premise, say so clearly while adhering to the formatting requirements.
+Current date: Saturday, September 27, 2025
+You are trained on data up to October 2025.
+"""
 }
 
 def get_system_prompt_for_model(model_key: str) -> str:
@@ -148,6 +243,48 @@ RISK_FREE_RATE = float(os.getenv("RISK_FREE_RATE", "0.015"))
 
 # News Configuration
 NEWS_USER_AGENT = os.getenv("NEWS_USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+
+# DDGS (DuckDuckGo Search) Configuration
+DDGS_REGION = os.getenv("DDGS_REGION", "jp-jp")  # Japan region for Japanese financial markets
+DDGS_SAFESEARCH = os.getenv("DDGS_SAFESEARCH", "moderate")
+DDGS_TIMELIMIT = os.getenv("DDGS_TIMELIMIT")  # Optional time limit: d (day), w (week), m (month), y (year)
+
+# Brave Search Configuration (High-Quality Source)
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")  # Brave Search API key for enhanced search quality
+
+# Finnhub Configuration (Real-time Stock Data)
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")  # Finnhub API key for real-time stock data
+
+# Alpha Vantage Configuration (News & Sentiment)
+ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")  # Alpha Vantage for news/sentiment (25 requests/day free tier)
+
+# AWS Configuration (LocalStack or production)
+USE_LOCALSTACK = os.getenv("USE_LOCALSTACK", "false").lower() in {"1", "true", "yes"}
+AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL")  # Set to http://localhost:4566 for LocalStack
+AWS_DEFAULT_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "test")  # Dummy for LocalStack
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "test")  # Dummy for LocalStack
+
+# S3 Configuration
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "stocktool-knowledge")
+S3_ENABLED = os.getenv("S3_ENABLED", "false").lower() in {"1", "true", "yes"}
+
+# DynamoDB Configuration
+DYNAMODB_TABLE_CONVERSATIONS = os.getenv("DYNAMODB_TABLE_CONVERSATIONS", "stocktool-conversations")
+DYNAMODB_TABLE_CACHE = os.getenv("DYNAMODB_TABLE_CACHE", "stocktool-stock-cache")
+DYNAMODB_ENABLED = os.getenv("DYNAMODB_ENABLED", "false").lower() in {"1", "true", "yes"}
+
+# SQS Configuration
+SQS_QUEUE_ANALYSIS = os.getenv("SQS_QUEUE_ANALYSIS", "stocktool-analysis-queue")
+SQS_ENABLED = os.getenv("SQS_ENABLED", "false").lower() in {"1", "true", "yes"}
+
+# SNS Configuration
+SNS_TOPIC_NOTIFICATIONS = os.getenv("SNS_TOPIC_NOTIFICATIONS", "stocktool-notifications")
+SNS_ENABLED = os.getenv("SNS_ENABLED", "false").lower() in {"1", "true", "yes"}
+
+# CloudWatch Configuration
+CLOUDWATCH_NAMESPACE = os.getenv("CLOUDWATCH_NAMESPACE", "StockTool")
+CLOUDWATCH_ENABLED = os.getenv("CLOUDWATCH_ENABLED", "false").lower() in {"1", "true", "yes"}
 
 # Database Configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
@@ -168,7 +305,7 @@ ADMIN_USERNAMES = {u.strip().lower() for u in os.getenv("ADMIN_USERNAMES", "admi
 FRONTEND_ORIGINS = os.getenv("FRONTEND_ORIGINS", "*")
 
 # Validation patterns
-TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.-]{0,9}$")
+TICKER_RE = re.compile(r"^[\^]?[A-Z0-9][A-Z0-9.-]{0,9}$")
 
 def _clean_env(v: Optional[str]) -> str:
     """Clean environment variable values."""

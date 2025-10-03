@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .connected { background-color: #d4edda; color: #155724; }
+        .disconnected { background-color: #f8d7da; color: #721c24; }
+        .connecting { background-color: #fff3cd; color: #856404; }
+        #log {
+            background-color: #f8f9fa;
+            padding: 15px;
+            height: 400px;
+            overflow-y: scroll;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 3px;
+        }
+        .log-info { color: #0c5460; }
+        .log-success { color: #155724; }
+        .log-error { color: #721c24; }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    
+    <div id="status" class="status disconnected">Status: Disconnected</div>
+    
+    <div>
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+        <button onclick="subscribe()">Subscribe to AAPL, GOOGL</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <h2>Connection Log</h2>
+    <div id="log"></div>
+
+    <script>
+        let ws = null;
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('status');
+        
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        
+        function updateStatus(status, cssClass) {
+            statusEl.textContent = `Status: ${status}`;
+            statusEl.className = `status ${cssClass}`;
+        }
+        
+        function connect() {
+            if (ws && ws.readyState !== WebSocket.CLOSED) {
+                log('Already connected or connecting', 'error');
+                return;
+            }
+            
+            // Construct WebSocket URL
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.hostname;
+            const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+            
+            // For development, use backend server directly
+            const wsUrl = `ws://127.0.0.1:8000/dashboard/ws`;
+            
+            log(`Connecting to ${wsUrl}...`, 'info');
+            updateStatus('Connecting...', 'connecting');
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                log('✅ WebSocket connected!', 'success');
+                updateStatus('Connected', 'connected');
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`📨 Received: ${data.type} - ${JSON.stringify(data).substring(0, 200)}`, 'info');
+                } catch (e) {
+                    log(`📨 Received (raw): ${event.data.substring(0, 200)}`, 'info');
+                }
+            };
+            
+            ws.onerror = (error) => {
+                log(`❌ WebSocket error: ${JSON.stringify(error)}`, 'error');
+                console.error('WebSocket error:', error);
+            };
+            
+            ws.onclose = (event) => {
+                log(`🔌 WebSocket closed. Code: ${event.code}, Reason: ${event.reason || 'none'}`, 'error');
+                updateStatus('Disconnected', 'disconnected');
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                log('Disconnecting...', 'info');
+                ws.close();
+                ws = null;
+            }
+        }
+        
+        function subscribe() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('Not connected. Please connect first.', 'error');
+                return;
+            }
+            
+            const message = {
+                action: 'subscribe',
+                symbols: ['AAPL', 'GOOGL']
+            };
+            
+            ws.send(JSON.stringify(message));
+            log(`📤 Sent: ${JSON.stringify(message)}`, 'success');
+        }
+        
+        function clearLog() {
+            logEl.innerHTML = '';
+        }
+        
+        // Auto-connect on page load
+        window.addEventListener('load', () => {
+            log('Page loaded. Click "Connect" to test WebSocket connection.', 'info');
+        });
+    </script>
+</body>
+</html>
