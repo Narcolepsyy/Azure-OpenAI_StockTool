@@ -1666,10 +1666,13 @@ class PerplexityWebSearchService:
         try:
             # Initialize Brave client for high-quality results with proper lifecycle
             async with BraveSearchClient() as brave_client:
-                # Enhance query for better results
+                # OPTIMIZATION: Skip LLM query enhancement for speed (saves 8-20s per search)
+                # Use rule-based enhancement instead which is instant
                 enhance_stage_start = time.perf_counter()
                 try:
-                    enhanced_query = await self._enhance_search_query(query, include_recent)
+                    # Skip expensive LLM enhancement, use fast rule-based enhancement
+                    enhanced_query = self._fallback_enhance_query(query, include_recent)
+                    logger.debug(f"Using fast rule-based query enhancement: '{query}' -> '{enhanced_query}'")
                 finally:
                     self._log_stage_timing("enhance_search_query", time.perf_counter() - enhance_stage_start, query)
                 
@@ -3396,11 +3399,13 @@ class PerplexityWebSearchService:
         
         try:
             # Prepare context from search results
+            # OPTIMIZATION: Use top 4 results instead of 6 for faster synthesis (reduces token count)
             context_parts = []
-            for result in results[:6]:  # Use top 6 results for synthesis
+            for result in results[:4]:  # Reduced from 6 to 4 for speed
                 content = result.content or result.snippet
                 if content:
-                    context_parts.append(f"[{result.citation_id}] {result.title}\n{content[:1000]}")
+                    # OPTIMIZATION: Reduced from 1000 to 800 chars per source
+                    context_parts.append(f"[{result.citation_id}] {result.title}\n{content[:800]}")
             
             if not context_parts:
                 return "I found search results but couldn't extract enough content to provide a comprehensive answer."
@@ -3447,40 +3452,57 @@ Provide a complete, well-researched answer with proper citations:"""
                 {"role": "user", "content": synthesis_prompt}
             ]
 
-            # Use Azure GPT OSS 120B for synthesis
+            # OPTIMIZATION: Use fast model (gpt-4o-mini) for synthesis instead of slow OSS 120B
+            # This reduces synthesis time from 20s to ~5s (4x faster)
             try:
-                # Prioritize your Azure GPT OSS 120B deployment
-                if AZURE_OPENAI_DEPLOYMENT_OSS_120B and AZURE_OPENAI_API_KEY:
-                    azure_client = AsyncAzureOpenAI(
-                        api_key=AZURE_OPENAI_API_KEY,
-                        api_version=AZURE_OPENAI_API_VERSION or "2024-02-01",
-                        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-                        timeout=60.0  # Reduced timeout for better responsiveness
+                # Use gpt-4o-mini for faster synthesis
+                try:
+                    # Try OpenAI first (usually faster than Azure)
+                    openai_client = get_openai_client()
+                    response = await asyncio.wait_for(
+                        openai_client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=default_messages,
+                            max_tokens=600,      # Reduced from 800 for faster generation
+                            temperature=0.2
+                        ),
+                        timeout=10.0  # Aggressive timeout: 10s max for synthesis
                     )
-                    
-                    # Get optimized system prompt for OSS 120B
-                    system_prompt = get_system_prompt_for_model("gpt-oss-120b")
-                    
-                    azure_messages = [
-                        {
-                            "role": "system",
-                            "content": f"{system_prompt}\n\n{base_system_prompt}"
-                        },
-                        {"role": "user", "content": synthesis_prompt}
-                    ]
+                    logger.info("Used gpt-4o-mini for fast answer synthesis")
+                except Exception as openai_error:
+                    logger.debug(f"OpenAI synthesis failed: {openai_error}, trying Azure fallback")
+                    # Fallback to Azure OSS 120B only if OpenAI fails
+                    if AZURE_OPENAI_DEPLOYMENT_OSS_120B and AZURE_OPENAI_API_KEY:
+                        azure_client = AsyncAzureOpenAI(
+                            api_key=AZURE_OPENAI_API_KEY,
+                            api_version=AZURE_OPENAI_API_VERSION or "2024-02-01",
+                            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+                            timeout=15.0  # Reduced from 60s to 15s for faster failure
+                        )
+                        
+                        system_prompt = get_system_prompt_for_model("gpt-oss-120b")
+                        azure_messages = [
+                            {
+                                "role": "system",
+                                "content": f"{system_prompt}\n\n{base_system_prompt}"
+                            },
+                            {"role": "user", "content": synthesis_prompt}
+                        ]
 
-                    response = await azure_client.chat.completions.create(
-                        model=AZURE_OPENAI_DEPLOYMENT_OSS_120B,
-                        messages=azure_messages,
-                        max_tokens=800,   # Reduced for faster responses
-                        temperature=0.2   # Lower temperature for more focused responses
-                    )
-                    
-                    await azure_client.close()
-                    logger.info("Used Azure GPT OSS 120B for answer synthesis")
-                    
-                else:
-                    raise ValueError("Azure GPT OSS 120B deployment not configured")
+                        response = await asyncio.wait_for(
+                            azure_client.chat.completions.create(
+                                model=AZURE_OPENAI_DEPLOYMENT_OSS_120B,
+                                messages=azure_messages,
+                                max_tokens=600,   # Reduced from 800
+                                temperature=0.2
+                            ),
+                            timeout=15.0  # Hard timeout for Azure synthesis
+                        )
+                        
+                        await azure_client.close()
+                        logger.info("Used Azure GPT OSS 120B for answer synthesis (fallback)")
+                    else:
+                        raise ValueError("No synthesis model available")
                     
             except Exception as azure_error:
                 logger.warning(f"Azure GPT OSS 120B failed: {azure_error}, falling back to OpenAI")
@@ -3690,7 +3712,7 @@ async def cleanup_perplexity_service():
 # Synchronous wrapper for tools
 def perplexity_web_search(
     query: str,
-    max_results: int = 8,
+    max_results: int = 5,  # OPTIMIZATION: Reduced from 8 to 5 for faster searches
     synthesize_answer: bool = True,
     include_recent: bool = False,
     time_limit: Optional[str] = None
@@ -3700,7 +3722,7 @@ def perplexity_web_search(
     
     Args:
         query: Search query
-        max_results: Maximum search results
+        max_results: Maximum search results (default 5 for speed, was 8)
         synthesize_answer: Whether to generate synthesized answer
         include_recent: Whether to prioritize recent content (default False)
         time_limit: DDGS time limit ('d'=day, 'w'=week, 'm'=month, 'y'=year)

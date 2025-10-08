@@ -426,3 +426,33 @@ def get_available_models() -> Dict[str, Dict[str, Any]]:
 for model_key in AVAILABLE_MODELS:
     if model_key not in AVAILABLE_MODELS[model_key]:
         AVAILABLE_MODELS[model_key]["available"] = False
+
+
+# ---------- ML Tool Selection Configuration ----------
+# Enable ML-based tool selection (vs rule-based)
+ML_TOOL_SELECTION_ENABLED = os.getenv("ML_TOOL_SELECTION_ENABLED", "true").lower() == "true"  # ✅ ENABLED
+
+# Path to trained ML model
+ML_MODEL_PATH = os.getenv("ML_MODEL_PATH", "models/tool_classifier.pkl")
+
+# Minimum confidence threshold for tool selection
+ML_CONFIDENCE_THRESHOLD = float(os.getenv("ML_CONFIDENCE_THRESHOLD", "0.3"))
+
+# Maximum number of tools to offer per request
+ML_MAX_TOOLS = int(os.getenv("ML_MAX_TOOLS", "5"))
+
+# Embedding model for query understanding
+ML_EMBEDDING_MODEL = os.getenv("ML_EMBEDDING_MODEL", "text-embedding-3-small")
+
+# Embedding cache settings
+ML_EMBEDDING_CACHE_SIZE = int(os.getenv("ML_EMBEDDING_CACHE_SIZE", "1000"))
+ML_EMBEDDING_CACHE_TTL = int(os.getenv("ML_EMBEDDING_CACHE_TTL", "3600"))  # 1 hour
+
+# Tool usage logging for training data collection
+ML_LOGGING_ENABLED = os.getenv("ML_LOGGING_ENABLED", "true").lower() == "true"
+
+# Minimum number of logs before training
+ML_MIN_TRAINING_SAMPLES = int(os.getenv("ML_MIN_TRAINING_SAMPLES", "100"))
+
+# Recommended number of logs for good accuracy
+ML_RECOMMENDED_TRAINING_SAMPLES = int(os.getenv("ML_RECOMMENDED_TRAINING_SAMPLES", "500"))

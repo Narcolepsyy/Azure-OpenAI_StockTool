@@ -6,6 +6,15 @@ import re
 from typing import Dict, Any, Callable, Iterable, List, Optional, Set
 
 logger = logging.getLogger(__name__)
+
+# ML tool selection imports (lazy loaded)
+try:
+    from app.services.ml.tool_selector import get_ml_tool_selector
+    ML_SELECTOR_AVAILABLE = True
+except ImportError:
+    ML_SELECTOR_AVAILABLE = False
+    logger.warning("ML tool selector not available - using rule-based selection only")
+
 from app.services.stock_service import (
     get_stock_quote, get_company_profile, get_historical_prices,
     get_augmented_news, get_risk_assessment,
@@ -597,6 +606,123 @@ def build_tools_for_request(prompt: str, capabilities: Optional[Iterable[str]] =
     # Preserve deterministic ordering for reproducibility
     ordered_names = sorted(names)
     return [copy.deepcopy(_TOOL_SPEC_BY_NAME[name]) for name in ordered_names]
+
+
+def build_tools_for_request_ml(
+    prompt: str, 
+    capabilities: Optional[Iterable[str]] = None, 
+    skip_heavy_tools: bool = False,
+    use_ml: bool = True,
+    fallback_to_rules: bool = True
+) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """
+    Build tool specifications using ML-based selection with fallback to rule-based.
+    
+    Args:
+        prompt: User's input prompt
+        capabilities: Optional set of capability filters
+        skip_heavy_tools: If True, skip RAG and web search for performance
+        use_ml: If True, attempt ML-based selection
+        fallback_to_rules: If True, fall back to rule-based if ML fails
+    
+    Returns:
+        Tuple of (tool_specs, metadata):
+        - tool_specs: List of tool specifications
+        - metadata: Dict with selection method, confidence, etc.
+    """
+    metadata = {
+        'method': 'unknown',
+        'ml_attempted': False,
+        'ml_succeeded': False,
+        'tools_count': 0,
+        'confidence': None,
+        'fallback_used': False,
+    }
+    
+    # Try ML selection if enabled
+    if use_ml and ML_SELECTOR_AVAILABLE:
+        try:
+            metadata['ml_attempted'] = True
+            selector = get_ml_tool_selector()
+            
+            # Check if ML should be used
+            if selector.should_use_ml():
+                logger.info(f"Using ML tool selection for query: {prompt[:100]}...")
+                
+                # Get all available tool names
+                available_tools = list(_TOOL_SPEC_BY_NAME.keys())
+                
+                # Predict tools with ML
+                selected_tools, probabilities = selector.predict_tools(
+                    query=prompt,
+                    available_tools=available_tools,
+                    return_probabilities=True
+                )
+                
+                if selected_tools:
+                    # Filter heavy tools if requested
+                    if skip_heavy_tools:
+                        heavy_tools = {
+                            'rag_search', 'augmented_rag_search', 'perplexity_search',
+                            'web_search', 'web_search_news', 'financial_context_search',
+                            'augmented_rag_web'
+                        }
+                        selected_tools = [t for t in selected_tools if t not in heavy_tools]
+                    
+                    # Build tool specs
+                    if selected_tools:
+                        ordered_names = sorted(selected_tools)
+                        tool_specs = [copy.deepcopy(_TOOL_SPEC_BY_NAME[name]) for name in ordered_names]
+                        
+                        avg_confidence = sum(probabilities.values()) / len(probabilities) if probabilities else 0.0
+                        
+                        metadata.update({
+                            'method': 'ml',
+                            'ml_succeeded': True,
+                            'tools_count': len(tool_specs),
+                            'confidence': round(avg_confidence, 3),
+                            'probabilities': probabilities,
+                            'fallback_used': False,
+                        })
+                        
+                        logger.info(
+                            f"ML selected {len(tool_specs)} tools "
+                            f"(confidence: {avg_confidence:.2f}): {ordered_names}"
+                        )
+                        
+                        return tool_specs, metadata
+            
+            # ML didn't return tools or should_use_ml returned False
+            logger.info("ML selection didn't return tools, falling back to rule-based")
+            
+        except Exception as e:
+            logger.error(f"ML tool selection failed: {e}", exc_info=True)
+    
+    # Fallback to rule-based selection
+    if fallback_to_rules:
+        logger.info("Using rule-based tool selection")
+        tool_specs = build_tools_for_request(prompt, capabilities, skip_heavy_tools)
+        
+        metadata.update({
+            'method': 'rule-based',
+            'tools_count': len(tool_specs),
+            'fallback_used': metadata['ml_attempted'],  # True if ML was attempted but failed
+        })
+        
+        # Record fallback in ML stats if applicable
+        if metadata['ml_attempted'] and ML_SELECTOR_AVAILABLE:
+            try:
+                selector = get_ml_tool_selector()
+                selector.record_fallback()
+            except Exception:
+                pass
+        
+        return tool_specs, metadata
+    
+    # No fallback allowed and ML failed - return empty
+    logger.warning("ML failed and fallback disabled, returning empty tool list")
+    return [], metadata
+
 
 # Parameter mapping helper for web_search compatibility
 def _web_search_with_parameter_mapping(**kw) -> Dict[str, Any]:

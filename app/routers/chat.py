@@ -5,6 +5,7 @@ import logging
 import re
 import asyncio
 import time
+import uuid
 from typing import Dict, Any, List, Optional, AsyncGenerator, Tuple, Set
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,12 +17,12 @@ from openai import AzureOpenAI
 from app.models.database import get_db, User, Log
 from app.models.schemas import ChatRequest, ChatResponse, ChatHistoryResponse, ChatMessage
 from app.auth.dependencies import get_current_user
-from app.core.config import DEFAULT_MODEL
+from app.core.config import DEFAULT_MODEL, ML_TOOL_SELECTION_ENABLED
 from app.utils.conversation import (
     conv_clear, conv_get, estimate_tokens, MAX_TOKENS_PER_TURN,
     prepare_conversation_messages_with_memory, store_conversation_messages_with_memory
 )
-from app.utils.tools import TOOL_REGISTRY, build_tools_for_request
+from app.utils.tools import TOOL_REGISTRY, build_tools_for_request, build_tools_for_request_ml
 from app.utils.connection_pool import connection_pool
 from app.utils.request_cache import (
     get_cached_response, cache_response, is_request_in_flight,
@@ -30,6 +31,7 @@ from app.utils.request_cache import (
 from app.utils.query_optimizer import (
     is_simple_query, get_fast_model_recommendation, should_skip_rag_and_web_search
 )
+from app.utils.tool_usage_logger import log_tool_usage
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -915,8 +917,19 @@ async def chat_stream_endpoint(
         get_cached_response, should_use_fast_model
     )
 
-    # Check cache first for performance boost
-    cached_response = get_cached_response(req.prompt, req.deployment or DEFAULT_MODEL)
+    # Prepare messages early for cache lookup (need for context hash)
+    sys_prompt_for_cache = req.system_prompt
+    if (req.locale or "en").lower().startswith("ja"):
+        sys_prompt_for_cache = (sys_prompt_for_cache or "").rstrip() + _JAPANESE_DIRECTIVE
+    
+    messages_for_cache, _ = await prepare_conversation_messages_with_memory(
+        req.prompt, sys_prompt_for_cache, req.conversation_id or "", False, str(user.id)
+    )
+
+    # Check cache first for performance boost (only for non-reset, existing conversations)
+    cached_response = None
+    if not req.reset and not req.conversation_id:
+        cached_response = get_cached_response(req.prompt, req.deployment or DEFAULT_MODEL, messages_for_cache)
     if cached_response:
         # Return cached response as stream
         async def serve_cached():
@@ -931,15 +944,16 @@ async def chat_stream_endpoint(
 
         return StreamingResponse(serve_cached(), media_type="text/event-stream")
 
-    # Use enhanced memory-aware message preparation with optimization
-    # Inject locale-specific instruction into system prompt if requested
-    sys_prompt = req.system_prompt
-    if (req.locale or "en").lower().startswith("ja"):
-        sys_prompt = (sys_prompt or "").rstrip() + _JAPANESE_DIRECTIVE
-
-    messages, conv_id = await prepare_conversation_messages_with_memory(
-        req.prompt, sys_prompt, req.conversation_id or "", req.reset, str(user.id)
-    )
+    # Reuse messages from cache lookup, or re-fetch if reset is requested
+    if req.reset:
+        messages, conv_id = await prepare_conversation_messages_with_memory(
+            req.prompt, sys_prompt_for_cache, req.conversation_id or "", req.reset, str(user.id)
+        )
+    else:
+        # Already fetched for cache lookup
+        messages = messages_for_cache
+        # Generate new conversation ID
+        conv_id = str(uuid.uuid4())
 
     # Performance optimization: detect simple queries and use fast model
     is_simple, query_type = is_simple_query(req.prompt)
@@ -953,13 +967,40 @@ async def chat_stream_endpoint(
     
     # Performance optimization: skip heavy tools for simple queries
     skip_heavy = should_skip_rag_and_web_search(req.prompt)
-    selected_tools = build_tools_for_request(req.prompt, getattr(req, "capabilities", None), skip_heavy_tools=skip_heavy)
+    
+    # Use ML tool selection if enabled, otherwise fall back to rule-based
+    if ML_TOOL_SELECTION_ENABLED:
+        selected_tools, tool_metadata = build_tools_for_request_ml(
+            req.prompt, 
+            getattr(req, "capabilities", None), 
+            skip_heavy_tools=skip_heavy,
+            use_ml=True,
+            fallback_to_rules=True
+        )
+        logger.info(
+            f"Tool selection: method={tool_metadata.get('method')}, "
+            f"confidence={tool_metadata.get('confidence')}, "
+            f"count={tool_metadata.get('tools_count')}"
+        )
+    else:
+        selected_tools = build_tools_for_request(req.prompt, getattr(req, "capabilities", None), skip_heavy_tools=skip_heavy)
+        tool_metadata = {'method': 'rule-based', 'ml_enabled': False}
+    
     selected_tool_names = {tool.get("function", {}).get("name") for tool in selected_tools}
     logger.debug(
         "Selected tools for request %s: %s",
         conv_id,
         sorted(name for name in selected_tool_names if name),
     )
+
+    # Validate model exists before proceeding
+    from app.core.config import AVAILABLE_MODELS
+    if model_key not in AVAILABLE_MODELS:
+        logger.error(f"Invalid model requested: {model_key}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid model '{model_key}'. Available models: {', '.join(AVAILABLE_MODELS.keys())}"
+        )
 
     # Use the enhanced model selection system with optimizations
     from app.services.openai_client import get_client_for_model
@@ -1567,6 +1608,20 @@ async def chat_stream_endpoint(
             logger.error(f"Database error in streaming: {e}")
             db.rollback()
 
+        # Cache the response if it's a new conversation (same logic as non-streaming endpoint)
+        if not req.reset and not req.conversation_id and full_content:
+            try:
+                from app.services.response_cache import cache_response
+                cache_data = {
+                    'content': full_content,
+                    'tool_calls': tool_call_results if tool_call_results else None,
+                    'conversation_id': conv_id
+                }
+                cache_response(req.prompt, model_key, cache_data, messages)
+                logger.debug(f"Cached streaming response for conversation {conv_id}")
+            except Exception as e:
+                logger.warning(f"Failed to cache streaming response: {e}")
+
         # Send completion status
         completion_data = {
             'type': 'done', 
@@ -1592,6 +1647,9 @@ async def chat_endpoint(
     db: Session = Depends(get_db)
 ):
     """Main chat endpoint with AI conversation, tool calling, and enhanced memory."""
+    # Track execution time for ML logging
+    start_time = time.time()
+    
     # If streaming is requested, redirect to streaming endpoint
     if req.stream:
         raise HTTPException(status_code=400, detail="Use /chat/stream endpoint for streaming responses")
@@ -1645,7 +1703,25 @@ async def chat_endpoint(
 
     # Performance optimization: skip heavy tools for simple queries
     skip_heavy = should_skip_rag_and_web_search(req.prompt)
-    selected_tools = build_tools_for_request(req.prompt, getattr(req, "capabilities", None), skip_heavy_tools=skip_heavy)
+    
+    # Use ML tool selection if enabled, otherwise fall back to rule-based
+    if ML_TOOL_SELECTION_ENABLED:
+        selected_tools, tool_metadata = build_tools_for_request_ml(
+            req.prompt, 
+            getattr(req, "capabilities", None), 
+            skip_heavy_tools=skip_heavy,
+            use_ml=True,
+            fallback_to_rules=True
+        )
+        logger.info(
+            f"Tool selection: method={tool_metadata.get('method')}, "
+            f"confidence={tool_metadata.get('confidence')}, "
+            f"count={tool_metadata.get('tools_count')}"
+        )
+    else:
+        selected_tools = build_tools_for_request(req.prompt, getattr(req, "capabilities", None), skip_heavy_tools=skip_heavy)
+        tool_metadata = {'method': 'rule-based', 'ml_enabled': False}
+    
     selected_tool_names = {tool.get("function", {}).get("name") for tool in selected_tools}
     logger.debug(
         "Selected tools for request %s: %s",
@@ -2049,6 +2125,24 @@ async def chat_endpoint(
         tool_calls=tool_call_results or None, 
         conversation_id=conv_id
     )
+    
+    # Log tool usage for ML training (async, non-blocking)
+    try:
+        tools_called_names = [tc.get("name") for tc in tool_call_results if tc.get("name")]
+        execution_time = time.time() - start_time
+        log_tool_usage(
+            query=req.prompt,
+            tools_available=selected_tool_names,
+            tools_called=tools_called_names,
+            success=True,  # If we got here, request succeeded
+            execution_time=execution_time,
+            model=model_key,
+            conversation_id=conv_id,
+            user_id=str(user.id),
+            tool_results=tool_call_results
+        )
+    except Exception as e:
+        logger.error(f"Failed to log tool usage: {e}")
     
     # Cache the response for future identical requests (if new conversation)
     if not req.reset and not req.conversation_id:
