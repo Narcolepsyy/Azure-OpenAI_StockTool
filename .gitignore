@@ -7,6 +7,8 @@ __pycache__/
 # Env & local db
 .env
 app.db
+app.db-shm
+app.db-wal
 
 # Node/Frontend
 frontend/node_modules/
