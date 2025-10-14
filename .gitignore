@@ -19,6 +19,9 @@ frontend/.vite/
 .idea/
 .vscode/
 
+# Playwright MCP (screenshots and artifacts)
+.playwright-mcp/
+
 # TypeScript build info
 frontend/tsconfig.tsbuildinfo
 
