@@ -100,9 +100,17 @@ export const useChat = () => {
           }
 
           // Replace streaming placeholder with final message
+          // Find the placeholder by ID to ensure we replace the correct message
           onMessageUpdate(prev => {
-            const finalMessages = prev.slice(0, -1).concat(finalMessage)
-            return finalMessages
+            const placeholderIndex = prev.findIndex(m => m.id === streamingMessage.id)
+            if (placeholderIndex === -1) {
+              // Placeholder not found, append final message
+              return [...prev, finalMessage]
+            }
+            // Replace placeholder at its position
+            const newMessages = [...prev]
+            newMessages[placeholderIndex] = finalMessage
+            return newMessages
           })
 
           if (data.conversation_id) {

@@ -19,7 +19,17 @@ interface ChatLayoutProps {
 const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
   const { settings, setDeployment, updateSettings, models } = useSettings()
   const { uiState, updateUIState } = useUIState()
-  const chatSessions = useChatSessionsContext()
+  const {
+    sessions,
+    currentSessionId,
+    messages,
+    createNewSession,
+    switchToSession,
+    deleteSession,
+    addMessage,
+    updateMessagesForSession,
+    ensureSession,
+  } = useChatSessionsContext()
   const {
     isLoading,
     isStreaming,
@@ -33,6 +43,24 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
   const network = useNetworkStatus()
 
   const [prompt, setPrompt] = useState('')
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null)
+
+  const handleCreateNewSession = useCallback(() => {
+    setPendingSessionId(null)
+    createNewSession()
+  }, [createNewSession])
+
+  const handleSwitchToSession = useCallback((sessionId: string) => {
+    setPendingSessionId(sessionId)
+    switchToSession(sessionId)
+  }, [switchToSession])
+
+  const handleDeleteSession = useCallback((sessionId: string) => {
+    if (pendingSessionId === sessionId) {
+      setPendingSessionId(null)
+    }
+    deleteSession(sessionId)
+  }, [deleteSession, pendingSessionId])
 
   useEffect(() => {
     const styleElement = document.createElement('style')
@@ -43,6 +71,12 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
       document.head.removeChild(styleElement)
     }
   }, [])
+
+  useEffect(() => {
+    if (currentSessionId && pendingSessionId === currentSessionId) {
+      setPendingSessionId(null)
+    }
+  }, [currentSessionId, pendingSessionId])
 
   const handleRewriteMessage = useCallback((message: Message) => {
     setPrompt(message.content)
@@ -111,7 +145,8 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
     if (!prompt.trim() || isLoading || isStreaming) return
 
     clearError()
-    const sessionId = chatSessions.ensureSession()
+    const sessionId = ensureSession()
+    setPendingSessionId(sessionId)
 
     const userMessage: Message = {
       id: generateId('user'),
@@ -120,7 +155,8 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
       timestamp: new Date(),
     }
 
-    chatSessions.addMessage(userMessage)
+    // Add user message first
+    addMessage(userMessage, sessionId)
     const currentPrompt = prompt
     setPrompt('')
 
@@ -132,9 +168,18 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
         conversation_id: conversationId || undefined,
         locale: settings.locale,
       },
-      (updater) => chatSessions.updateMessagesForSession(sessionId, updater)
+      // Pass updater that ensures user message is included
+      (updater) => {
+        updateMessagesForSession(sessionId, (prev) => {
+          // Ensure user message is in the list before adding assistant message
+          const hasUserMessage = prev.some(m => m.id === userMessage.id)
+          const messagesWithUser = hasUserMessage ? prev : [...prev, userMessage]
+          // Now apply the updater (which adds assistant message)
+          return updater(messagesWithUser)
+        })
+      }
     )
-  }, [prompt, isLoading, isStreaming, clearError, chatSessions, sendMessage, settings, conversationId])
+  }, [prompt, isLoading, isStreaming, clearError, ensureSession, addMessage, sendMessage, settings, conversationId, updateMessagesForSession])
 
   const handleTabChange = useCallback((messageId: string, tab: TabType) => {
     updateUIState((prev) => ({
@@ -143,7 +188,26 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
     }))
   }, [updateUIState])
 
-  const showCenteredWelcome = !chatSessions.currentSessionId
+  // Show the welcome screen only when we have no session AND no messages.
+  // This prevents the first sent message from getting stuck on the blank welcome view
+  // while the new session ID is still propagating through state updates.
+  const hasActiveSession = Boolean(currentSessionId || pendingSessionId)
+  const hasMessages = messages.length > 0
+  const showCenteredWelcome = !hasActiveSession && !hasMessages && !isStreaming && !isLoading
+  
+  // Debug logging
+  if (import.meta.env.DEV) {
+    console.log('[ChatLayout] Render state:', {
+      currentSessionId,
+      pendingSessionId,
+      messageCount: messages.length,
+      hasActiveSession,
+      hasMessages,
+      showCenteredWelcome,
+      isStreaming,
+      isLoading,
+    })
+  }
 
   if (showCenteredWelcome) {
     return (
@@ -162,14 +226,14 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
   onErrorDismiss={clearError}
   onStopGeneration={stopGeneration}
         networkStatus={network}
-        chatSessions={chatSessions.sessions}
+        chatSessions={sessions}
         uiState={uiState}
         onUIStateChange={updateUIState}
         settings={settings}
         onSettingsChange={updateSettings}
-        onNewChat={chatSessions.createNewSession}
-        onSessionSelect={chatSessions.switchToSession}
-        onSessionDelete={chatSessions.deleteSession}
+        onNewChat={handleCreateNewSession}
+        onSessionSelect={handleSwitchToSession}
+        onSessionDelete={handleDeleteSession}
         onLogout={onLogout}
       />
     )
@@ -193,16 +257,16 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
                   isLeftSidebarExpanded: !prev.isLeftSidebarExpanded,
                 }))
               }
-              sessions={chatSessions.sessions}
-              currentSessionId={chatSessions.currentSessionId}
+              sessions={sessions}
+              currentSessionId={currentSessionId}
               user={user}
               locale={settings.locale}
-              onNewChat={chatSessions.createNewSession}
+              onNewChat={handleCreateNewSession}
               onSearchClick={() =>
                 updateUIState((prev) => ({ ...prev, showSearchModal: true }))
               }
-              onSessionClick={chatSessions.switchToSession}
-              onSessionDelete={chatSessions.deleteSession}
+              onSessionClick={handleSwitchToSession}
+              onSessionDelete={handleDeleteSession}
               onSettingsClick={() =>
                 updateUIState((prev) => ({ ...prev, showSettings: true, showUserMenu: false }))
               }
@@ -221,7 +285,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
       <div className="absolute inset-0 flex flex-col bg-gray-900">
         <ErrorBoundary>
           <ChatMessagesArea
-            messages={chatSessions.messages}
+            messages={messages}
             isLoading={isLoading}
             isStreaming={isStreaming}
             activeTools={activeTools}
@@ -282,9 +346,9 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({ user, onLogout }) => {
         onSearchQueryChange={(query: string) =>
           updateUIState((prev) => ({ ...prev, searchModalQuery: query }))
         }
-        sessions={chatSessions.sessions}
+        sessions={sessions}
         onSessionSelect={(sessionId: string) => {
-          chatSessions.switchToSession(sessionId)
+          handleSwitchToSession(sessionId)
           updateUIState((prev) => ({ ...prev, showSearchModal: false, searchModalQuery: '' }))
         }}
         locale={settings.locale}

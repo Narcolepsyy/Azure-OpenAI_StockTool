@@ -130,7 +130,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 e.stopPropagation()
                 onSearchClick()
               }}
-              title="Search chats (⌘K)"
+              title="Search chats"
             >
               <SearchIcon className="w-5 h-5" />
             </div>
