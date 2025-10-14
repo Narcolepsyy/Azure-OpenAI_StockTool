@@ -1,8 +1,31 @@
 # Comprehensive Stock Analysis Tool Guide
 
-This page documents all 16 available tools powered by yfinance with comprehensive financial analysis capabilities. Follow these patterns to avoid trial-and-error calls, reduce latency, and keep token usage low.
+This page documents all available tools for comprehensive financial analysis and market research. The system uses **hybrid ML + document-based tool selection** to intelligently choose the most relevant tools for each query.
 
-General rules
+## Tool Selection System
+
+The system uses a two-stage intelligent tool selection process:
+
+**Stage 1: ML/Hybrid Selector** (Your assistant's brain)
+- Analyzes your query using machine learning
+- Narrows down from 24+ tools to 2-5 most relevant tools
+- Uses hybrid approach: ML classifier + document-based similarity
+- Confidence threshold: 0.40 (triggers doc-based fallback when lower)
+
+**Stage 2: OpenAI Function Calling** (GPT decides)
+- Receives the filtered tool list from Stage 1
+- Decides which specific tool(s) to actually call based on query context
+- May call 0, 1, or multiple tools depending on what's needed
+
+**Example Flow:**
+```
+Query: "詳細な事業内容や最新ニュース" (business info and news)
+Stage 1: ML selects ['perplexity_search', 'get_stock_quote'] 
+Stage 2: GPT calls only 'perplexity_search' (more relevant for news)
+```
+
+## General Rules
+
 - Always use the parameter names exactly as listed (e.g., symbol, not ticker). Booleans are true/false, not strings.
 - Prefer small limits and concise periods/intervals to minimize tokens.
 - If you only need a price or a short fact, do not fetch large histories or augmented news.
@@ -127,6 +150,45 @@ Tool: rag_search
   - Use rag_search to fetch in-domain guidance (like this page) instead of scraping large web content.
   - Keep k small (2–4). Quote concise user intent in query.
 
+---
+
+Tool: perplexity_search
+- Purpose: **PRIORITY TOOL** - Enhanced web search with AI-powered answer synthesis
+- Input
+  - query: string (required) - Search query in any language (supports Japanese, English, etc.)
+  - max_results: integer (default: 8) - Maximum number of search results to process
+  - synthesize_answer: boolean (default: true) - Whether to generate AI-synthesized answer
+  - include_recent: boolean (default: true) - Whether to prioritize recent content
+- Returns
+  - { query, answer, citations: {}, sources: [], css_styles, method, duration }
+- Example call
+  - {"type":"function","function":{"name":"perplexity_search","arguments":"{\"query\":\"Tesla earnings Q4 2024\",\"max_results\":5}"}}
+- Tips
+  - **Use whenever you're uncertain or lack current information**
+  - Primary tool for real-time information, current events, recent news
+  - Supports Japanese queries with bilingual results
+  - Returns properly cited answers with source attribution
+  - Performance: ~500ms average response time
+
+---
+
+Tool: augmented_rag_search
+- Purpose: **COMPREHENSIVE SEARCH** - Combines knowledge base and web search
+- Input
+  - query: string (required) - Search query for augmented RAG
+  - kb_k: integer (default: 3) - Number of knowledge base chunks to retrieve
+  - web_results: integer (default: 5) - Number of web search results
+  - include_web: boolean (default: true) - Whether to include web search
+  - web_content: boolean (default: true) - Whether to fetch full content from web pages
+- Returns
+  - { query, combined_chunks: [{source, title, content, url, relevance_score, type}], sources }
+- Example call
+  - {"type":"function","function":{"name":"augmented_rag_search","arguments":"{\"query\":\"stock analysis methodology\",\"kb_k\":3,\"web_results\":5}"}}
+- Tips
+  - Use for complex queries requiring both internal knowledge and current information
+  - Always includes web search by default for most current data
+  - Best for comprehensive research and analysis
+
 ## ADVANCED FINANCIAL ANALYSIS TOOLS
 
 Tool: get_financials
@@ -241,11 +303,91 @@ Tool: get_nikkei_news_with_sentiment
 
 ---
 
+## STOCK PREDICTION TOOLS (AI/ML)
+
+Tool: predict_stock_price
+- Purpose: AI-powered stock price prediction using LSTM neural network
+- Input
+  - symbol: string (required) - Stock ticker symbol (e.g., AAPL, 8359.T)
+  - days: integer (default: 7) - Number of days to predict (1-30)
+  - auto_train: boolean (default: true) - Auto-train model if not found
+- Returns
+  - { symbol, predictions: [{date, predicted_price}], trend, confidence, model_info }
+- Example call
+  - {"type":"function","function":{"name":"predict_stock_price","arguments":"{\"symbol\":\"AAPL\",\"days\":7}"}}
+- Tips
+  - Optimized for lightweight GPU (GTX 1650 Ti)
+  - Returns predicted prices with trend analysis
+  - Requires trained model (auto-trains if needed)
+  - Best for 7-14 day predictions
+
+---
+
+Tool: train_model
+- Purpose: Train LSTM prediction model for a stock symbol
+- Input
+  - symbol: string (required) - Stock ticker symbol to train model for
+  - period: string (default: "2y") - Historical data period for training (1y, 2y, 5y)
+  - save_model: boolean (default: true) - Whether to save trained model
+- Returns
+  - { symbol, training_metrics: {loss, mae}, model_saved, training_time }
+- Example call
+  - {"type":"function","function":{"name":"train_model","arguments":"{\"symbol\":\"TSLA\",\"period\":\"2y\"}"}}
+- Tips
+  - Use when prediction model doesn't exist or needs retraining
+  - Uses 2 years of historical data by default
+  - Model is saved for future predictions
+  - Returns training metrics (loss, MAE)
+
+---
+
+Tool: get_model_info
+- Purpose: Get information about trained prediction model
+- Input
+  - symbol: string (required) - Stock ticker symbol
+- Returns
+  - { symbol, model_exists, training_date, performance_metrics, model_config }
+- Example call
+  - {"type":"function","function":{"name":"get_model_info","arguments":"{\"symbol\":\"AAPL\"}"}}
+- Tips
+  - Shows training date, performance metrics, and model configuration
+  - Use to check if model exists before prediction
+
+---
+
+Tool: list_available_models
+- Purpose: List all available trained prediction models
+- Input
+  - (no parameters required)
+- Returns
+  - { count, models: [{symbol, training_date, performance_metrics}] }
+- Example call
+  - {"type":"function","function":{"name":"list_available_models","arguments":"{}"}}
+- Tips
+  - Shows all trained models with their training dates and performance metrics
+  - Useful for checking which stocks have prediction models available
+
+---
+
 ## COMPREHENSIVE ANALYSIS RECIPES
 
 **Quick Price Check**
 1) get_stock_quote(symbol)
 2) Generate a 1–2 sentence answer; avoid extra tool calls.
+
+**Web-Enhanced Stock Research**
+1) get_stock_quote(symbol) — current price
+2) get_company_profile(symbol) — basic info
+3) perplexity_search(f"{symbol} recent news and analyst opinions") — current market sentiment
+4) get_technical_indicators(symbol, indicators:["rsi_14", "sma_20"]) — technical analysis
+5) Synthesize comprehensive view with recent context
+
+**Stock Price Prediction Analysis**
+1) predict_stock_price(symbol, days:7) — AI prediction for next week
+2) get_historical_prices(symbol, period:"3mo") — recent price history
+3) get_technical_indicators(symbol, period:"3mo") — technical signals
+4) get_risk_assessment(symbol, period:"1y") — risk metrics
+5) Generate prediction analysis with risk assessment
 
 **Complete Stock Analysis**
 1) get_company_profile(symbol) — basic info
@@ -294,12 +436,26 @@ Tool: get_nikkei_news_with_sentiment
 - Use specific indicator arrays rather than defaults
 - Avoid requesting full article text unless needed
 - Keep RAG searches focused with k ≤ 4
+- Use perplexity_search instead of multiple news tools for current info
 
-**Tool Selection Strategy**
-- Start with get_market_summary() for market context
-- Use get_stock_quote() for quick price checks
-- Escalate to get_financials() only for deep fundamental analysis
-- Combine get_technical_indicators() with get_historical_prices() for chart analysis
+**Tool Selection Strategy (Handled Automatically by ML)**
+- System uses **hybrid ML + document-based selection** (0.40 confidence threshold)
+- ML classifier provides fast tool selection for trained patterns
+- Doc-based fallback uses embedding similarity to this guide when ML confidence is low
+- You don't need to manually select tools - the system does it intelligently
+
+**When ML Selector Triggers Doc-Based Fallback:**
+- Query confidence < 0.40 (e.g., vague or unusual queries)
+- Meta-queries about tool capabilities (e.g., "Which tool gets institutional data?")
+- New or uncommon use cases not in training data
+- Doc-based finds specific tools by matching query to tool descriptions in this guide
+
+**Example of Hybrid Selection in Action:**
+```
+Query: "Which tool retrieves institutional ownership data?"
+ML-only: get_technical_indicators, perplexity_search (0.375 confidence)
+Hybrid: Added get_institutional_holders (doc-based found the right tool!)
+```
 
 **Error Handling**
 - Tools may return {"error": "..."}; handle gracefully
@@ -307,75 +463,99 @@ Tool: get_nikkei_news_with_sentiment
 - Fallback to simpler tools if complex ones fail
 
 **Multi-Language Support**
-- Use locale:"ja" for Japanese responses
+- System supports Japanese queries natively
 - get_nikkei_news_with_sentiment() provides bilingual sentiment
-- Market analysis adapts to user's language preference
+- perplexity_search handles multilingual queries
+- Market analysis adapts to user's language preference automatically
+
+## TOOL SELECTION PERFORMANCE
+
+**ML Selector Statistics** (Your assistant's performance)
+- Average prediction time: 500-700ms (includes embedding + classification)
+- ML confidence threshold: 0.40 (triggers doc-based when lower)
+- Typical tool count: 2-3 tools per query
+- Doc-based fallback rate: ~10-20% (triggered for unusual queries)
+
+**Two-Stage Tool Selection Flow:**
+```
+User Query
+    ↓
+ML/Hybrid Selector (Stage 1)
+    ├─ ML Classifier (fast, trained on usage patterns)
+    │  └─ Confidence ≥ 0.40? → Return tools
+    └─ Doc-Based Fallback (embedding similarity to this guide)
+       └─ Confidence < 0.40? → Augment with doc-based tools
+    ↓
+Filtered Tool List (2-5 tools)
+    ↓
+OpenAI Function Calling (Stage 2)
+    └─ GPT decides which tool(s) to actually call
+    ↓
+Tool Execution (0-N tools)
+```
+
+**Why You May See Different Tool Counts:**
+- **Selected**: Tools suggested by ML/hybrid selector (Stage 1)
+- **Executed**: Tools actually called by GPT (Stage 2)
+- Example: Selected 2 tools, but GPT only executed 1 (most relevant)
 
 ## WEB SEARCH INTEGRATION
 
-### New Web Search Tools (September 2024)
+**Primary Web Search Tool: perplexity_search**
+- **Purpose**: Enhanced web search with AI-powered answer synthesis
+- **Performance**: ~500ms average response time
+- **Use whenever**: You need current information, real-time data, or recent news
+- **Supports**: Multilingual queries (Japanese, English, etc.)
+- **Returns**: Properly cited answers with source attribution
 
-**Tool: web_search_general**
-- Purpose: Real-time web search for current market information and analysis
-- Performance: 0.34s average response time, 100% success rate
-- Input: query (string), max_results (int, default: 8)
-- Returns: {query, results: [{title, url, snippet, source, timestamp, relevance_score}], count, method, duration_seconds}
-- Best for: Current market analysis, breaking news, recent earnings reports
-
-**Tool: web_search_financial**  
-- Purpose: Financial-focused search with enhanced relevance for market data
-- Performance: Near-instantaneous with financial source prioritization
-- Input: query (string), max_results (int, default: 8)
-- Returns: Enhanced results with financial source attribution
-- Best for: Stock analysis, analyst reports, financial news, earnings data
-
-**Tool: web_search_news**
-- Purpose: News-focused search for recent developments and market updates  
-- Performance: 0.34s average with time filtering optimization
-- Input: query (string), max_results (int, default: 8), days_back (int, default: 7)
-- Returns: Time-filtered news results with recency scoring
-- Best for: Breaking news, market developments, company announcements
-
-**Tool: enhanced_rag_search**
-- Purpose: Combined knowledge base + web search for comprehensive analysis
-- Performance: 0.65s average, combines internal knowledge with real-time data
-- Input: query (string), kb_k (int, default: 3), web_results (int, default: 5), max_total_chunks (int, default: 8)
-- Returns: {query, combined_chunks: [{source, title, content, url, relevance_score, type}], sources}
-- Best for: Comprehensive analysis requiring both historical knowledge and current information
+**Comprehensive Search: augmented_rag_search**
+- **Purpose**: Combines knowledge base + web search
+- **Performance**: ~1-2s (includes both KB and web search)
+- **Use for**: Complex queries needing both historical knowledge and current info
+- **Best for**: Investment methodology + current market analysis
 
 ### Web Search Integration Patterns
 
 **Current Market Analysis**
 ```
 1. get_market_summary() → Market context
-2. web_search_news("market sentiment today", max_results=3) → Current sentiment  
-3. web_search_financial(f"{symbol} analyst reports latest") → Recent analysis
+2. perplexity_search("market sentiment today") → Current sentiment with AI synthesis
+3. get_stock_quote(symbols) → Price movements
 4. Synthesize comprehensive view
 ```
 
 **Breaking News Response**
 ```
-1. web_search_news("breaking financial news", max_results=5) → Headlines
-2. For major stories: web_search_financial(f"{topic} market impact") → Analysis
-3. get_stock_quote(affected_symbols) → Price movements
-4. Provide timely market update
+1. perplexity_search("breaking financial news today") → AI-synthesized headlines
+2. get_stock_quote(affected_symbols) → Price impacts
+3. Provide timely market update with citations
 ```
 
 **Enhanced Stock Research**
 ```
-1. Traditional yfinance analysis (financials, technicals, etc.)
-2. web_search_financial(f"{symbol} earnings Q3 2024") → Latest earnings context
-3. enhanced_rag_search("investment analysis methodology") → Knowledge base guidance
-4. web_search_news(f"{symbol} news", days_back=7) → Recent developments
-5. Generate comprehensive investment thesis
+1. get_company_profile(symbol) → Basic info
+2. get_stock_quote(symbol) → Current price
+3. perplexity_search(f"{symbol} recent analyst reports and earnings") → Latest context
+4. get_technical_indicators(symbol) → Technical analysis
+5. augmented_rag_search("investment analysis best practices") → Methodology guidance
+6. Generate comprehensive investment thesis
 ```
 
-### Performance Optimizations Implemented
-- **12.6x faster web search** (4.28s → 0.34s average response)
-- **Zero memory leaks** through proper session management
-- **Concurrent API processing** for parallel search execution
-- **Intelligent caching** with 5-minute TTL for repeated queries
-- **Multi-source fallbacks** ensuring 100% search success rate
+**AI-Powered Stock Prediction**
+```
+1. predict_stock_price(symbol, days=7) → AI prediction
+2. get_historical_prices(symbol, period="3mo") → Recent history
+3. perplexity_search(f"{symbol} upcoming catalysts") → Market-moving events
+4. get_risk_assessment(symbol) → Risk metrics
+5. Generate prediction analysis with risk assessment
+```
+
+### Performance Optimizations
+- **Hybrid tool selection**: ML + doc-based (500-700ms)
+- **Fast web search**: perplexity_search (~500ms average)
+- **Intelligent caching**: 5-minute TTL for repeated queries
+- **Concurrent processing**: Parallel tool execution when possible
+- **Smart truncation**: Citation-preserving content reduction
 
 ## KNOWLEDGE BASE MAINTENANCE
 
@@ -383,20 +563,42 @@ Tool: get_nikkei_news_with_sentiment
 - Use RAG API: POST /api/rag/reindex with body {"clear": true} to rebuild the index after changing knowledge files
 - Update this guide when new tools are added
 - Test new tools with various market conditions
-- Reindex after adding web search documentation
+- Reindex after updating this documentation
 
-**Best Practices**
+**Best Practices for This Guide**
 - Document new tool patterns as they're developed
 - Maintain example calls that work reliably  
 - Keep performance tips updated based on real usage
-- Balance web search with knowledge base for optimal performance
-- Use web search for current data, knowledge base for methodology
-- Monitor search performance and adjust timeouts as needed
+- Update tool descriptions when APIs change
+- **Important**: Doc-based tool selector parses this guide to find relevant tools
+- Use clear, descriptive tool purposes and tips for better ML/doc-based matching
 
-**Knowledge Base Files Added**
-- `web_search_guide.md` - Comprehensive web search documentation
-- `performance_architecture.md` - System performance and optimization details
-- Enhanced `tool_usage.md` - Updated with web search integration patterns
+**How Doc-Based Selector Uses This Guide:**
+1. Parses each "Tool: tool_name" section
+2. Extracts Purpose, Parameters, and Tips for each tool
+3. Creates embeddings of tool descriptions
+4. When ML confidence is low (<0.40), matches query to tool descriptions
+5. Returns tools with highest semantic similarity to user query
+
+**Example of Effective Tool Description:**
+```
+Tool: get_institutional_holders
+- Purpose: Institutional ownership, mutual fund holders, major shareholders
+- Tips: Analyze institutional confidence and ownership concentration
+```
+Query: "Which tool retrieves institutional ownership data?"
+→ Doc-based matches "institutional ownership" → Selects get_institutional_holders ✓
+
+**Knowledge Base Files in System**
+- `tool_usage.md` - This comprehensive guide (you are here!)
+- Used by doc-based selector for intelligent tool discovery
+- Updated: October 2025 with hybrid ML + doc-based tool selection
+
+**System Architecture:**
+- **24+ total tools** available across stock analysis, news, predictions, and web search
+- **ML classifier** trained on usage patterns (10 tools in training set)
+- **Doc-based fallback** uses embeddings of this guide (20+ tools documented)
+- **Hybrid approach** provides best coverage: speed (ML) + completeness (doc-based)
 
 
 
