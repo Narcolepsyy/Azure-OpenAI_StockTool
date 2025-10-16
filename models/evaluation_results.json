@@ -1,48 +1,48 @@
 {
-  "precision": 0.8938053097345132,
-  "recall": 0.9619047619047619,
-  "f1": 0.926605504587156,
-  "hamming_loss": 0.017582417582417582,
-  "jaccard": 0.9230769230769231,
-  "exact_match": 0.8901098901098901,
-  "grade": "A+ \u2b50",
+  "precision": 0.8421052631578947,
+  "recall": 0.9448818897637795,
+  "f1": 0.8905380333951762,
+  "hamming_loss": 0.026339285714285714,
+  "jaccard": 0.8764880952380952,
+  "exact_match": 0.8169642857142857,
+  "grade": "A",
   "ready_for_deployment": true,
   "issues": [],
   "tool_metrics": [
     {
       "tool": "get_stock_quote",
-      "precision": 0.8163265306122449,
+      "precision": 0.736,
       "recall": 1.0,
-      "f1": 0.898876404494382,
-      "support": 40
+      "f1": 0.847926267281106,
+      "support": 92
     },
     {
       "tool": "get_company_profile",
       "precision": 1.0,
-      "recall": 0.6666666666666666,
-      "f1": 0.8,
-      "support": 12
+      "recall": 0.7096774193548387,
+      "f1": 0.8301886792452831,
+      "support": 31
     },
     {
       "tool": "get_historical_prices",
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "support": 11
+      "precision": 0.9705882352941176,
+      "recall": 0.9166666666666666,
+      "f1": 0.9428571428571428,
+      "support": 36
     },
     {
       "tool": "get_technical_indicators",
-      "precision": 0.9090909090909091,
+      "precision": 0.8870967741935484,
       "recall": 1.0,
-      "f1": 0.9523809523809523,
-      "support": 20
+      "f1": 0.9401709401709402,
+      "support": 55
     },
     {
       "tool": "perplexity_search",
-      "precision": 0.9565217391304348,
-      "recall": 1.0,
-      "f1": 0.9777777777777777,
-      "support": 22
+      "precision": 0.9047619047619048,
+      "recall": 0.95,
+      "f1": 0.926829268292683,
+      "support": 40
     }
   ]
 }

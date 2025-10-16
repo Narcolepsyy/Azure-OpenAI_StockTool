@@ -45,11 +45,11 @@ _tool_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="tool-exec
 
 # Pre-serialized common response structures to reduce JSON overhead
 _PRECOMPILED_RESPONSES = {
-    'start': lambda conv_id, model: f'"type":"start","conversation_id":"{conv_id}","model":"{model}"',
-    'tool_running': lambda name: f'"type":"tool_call","name":"{name}","status":"running"',
-    'tool_completed': lambda name: f'"type":"tool_call","name":"{name}","status":"completed"',
-    'tool_error': lambda name, error: f'"type":"tool_call","name":"{name}","status":"error","error":"{json.dumps(error)[1:-1]}"',
-    'content': lambda delta: f'"type":"content","delta":{json.dumps(delta)}'
+    'start': lambda conv_id, model: f'{{"type":"start","conversation_id":"{conv_id}","model":"{model}"}}',
+    'tool_running': lambda name: f'{{"type":"tool_call","name":"{name}","status":"running"}}',
+    'tool_completed': lambda name: f'{{"type":"tool_call","name":"{name}","status":"completed"}}',
+    'tool_error': lambda name, error: f'{{"type":"tool_call","name":"{name}","status":"error","error":{json.dumps(str(error))}}}',
+    'content': lambda delta: f'{{"type":"content","delta":{json.dumps(delta)}}}'
 }
 
 # --- Smart truncation helpers for synthesized answers (Perplexity-style) ---
@@ -844,7 +844,7 @@ def _strip_pseudo_tool_markup(text: str) -> str:
         return text
 
 def _convert_latex_format(text: str) -> str:
-    """Normalize LaTeX math delimiters to `\(`, `\)`, `\[`, and `\]` as required by frontend rendering."""
+    r"""Normalize LaTeX math delimiters to `\(`, `\)`, `\[`, and `\]` as required by frontend rendering."""
     if not text:
         return text
     try:
@@ -1179,10 +1179,10 @@ async def chat_stream_endpoint(
                         # Track results and yield updates
                         if error:
                             tool_call_results.append({"id": tool_call_id, "name": name, "error": error})
-                            yield f"data: {{{_PRECOMPILED_RESPONSES['tool_error'](name, error)}}}\n\n"
+                            yield f"data: {_PRECOMPILED_RESPONSES['tool_error'](name, error)}\n\n"
                         else:
                             tool_call_results.append({"id": tool_call_id, "name": name, "result": result})
-                            yield f"data: {{{_PRECOMPILED_RESPONSES['tool_completed'](name)}}}\n\n"
+                            yield f"data: {_PRECOMPILED_RESPONSES['tool_completed'](name)}\n\n"
                         
                         completed_tools.append(name)
                         
@@ -1190,12 +1190,12 @@ async def chat_stream_endpoint(
                         logger.error(f"Error processing completed tool task: {e}")
                         tc = task_to_tc.get(task, {})
                         name = tc.get("function", {}).get("name", "unknown")
-                        yield f"data: {{{_PRECOMPILED_RESPONSES['tool_error'](name, str(e))}}}\n\n"
+                        yield f"data: {_PRECOMPILED_RESPONSES['tool_error'](name, str(e))}\n\n"
             
             logger.info(f"Completed {len(completed_tools)} tool calls: {completed_tools}")
 
         # Send initial metadata with pre-compiled response
-        yield f"data: {{{_PRECOMPILED_RESPONSES['start'](conv_id, model_name)}}}\n\n"
+        yield f"data: {_PRECOMPILED_RESPONSES['start'](conv_id, model_name)}\n\n"
 
         try:
             # Handle tool calling with streaming (1 round only for faster responses)
@@ -1326,7 +1326,7 @@ async def chat_stream_endpoint(
                                     full_content += converted_text
                                     any_text = True
                                     # Use pre-compiled response for better performance
-                                    yield f"data: {{{_PRECOMPILED_RESPONSES['content'](converted_text)}}}\n\n"
+                                    yield f"data: {_PRECOMPILED_RESPONSES['content'](converted_text)}\n\n"
                             elif isinstance(delta.content, str):
                                 # Skip raw tool call JSON outputs from GPT-5
                                 if _is_raw_tool_call_output(delta.content):
@@ -1339,7 +1339,7 @@ async def chat_stream_endpoint(
                                 full_content += converted_text
                                 any_text = True
                                 # Use pre-compiled response for better performance
-                                yield f"data: {{{_PRECOMPILED_RESPONSES['content'](converted_text)}}}\n\n"
+                                yield f"data: {_PRECOMPILED_RESPONSES['content'](converted_text)}\n\n"
 
                         # Handle tool calls streamed by the model
                         if hasattr(delta, 'tool_calls') and delta.tool_calls:
@@ -1367,7 +1367,7 @@ async def chat_stream_endpoint(
                                         announced_tools.add(name)
                                         newly_seen.append(name)
                                         # Emit an immediate running status for this tool with pre-compiled response
-                                        yield f"data: {{{_PRECOMPILED_RESPONSES['tool_running'](name)}}}\n\n"
+                                        yield f"data: {_PRECOMPILED_RESPONSES['tool_running'](name)}\n\n"
                                 if getattr(tc, 'function', None) and getattr(tc.function, 'arguments', None):
                                     collected_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
 

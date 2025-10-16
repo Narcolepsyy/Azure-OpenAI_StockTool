@@ -3,6 +3,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import { chatStream, cancelChatStream, type ChatRequest as ApiChatRequest } from '../lib/api'
 import type { Message, LiveTool } from '../types'
 import { generateId } from '../utils'
@@ -64,18 +65,21 @@ export const useChat = () => {
           } else if (chunk.type === 'content' && chunk.delta) {
             accumulatedContentRef.current += chunk.delta
             
-            // Update streaming message with accumulated content
-            onMessageUpdate(prev => {
-              if (prev.length === 0) return prev
-              const lastIndex = prev.length - 1
-              const lastMsg = prev[lastIndex]
-              if (!lastMsg || lastMsg.role !== 'assistant') return prev
-              
-              const updatedMsg: Message = { 
-                ...lastMsg, 
-                content: accumulatedContentRef.current 
-              }
-              return [...prev.slice(0, lastIndex), updatedMsg]
+            // Force synchronous update to prevent batching and show streaming effect
+            flushSync(() => {
+              // Update streaming message with accumulated content
+              onMessageUpdate(prev => {
+                if (prev.length === 0) return prev
+                const lastIndex = prev.length - 1
+                const lastMsg = prev[lastIndex]
+                if (!lastMsg || lastMsg.role !== 'assistant') return prev
+                
+                const updatedMsg: Message = { 
+                  ...lastMsg, 
+                  content: accumulatedContentRef.current 
+                }
+                return [...prev.slice(0, lastIndex), updatedMsg]
+              })
             })
           } else if (chunk.type === 'tool_calls') {
             const names: string[] = Array.isArray(chunk.tools) ? chunk.tools : []

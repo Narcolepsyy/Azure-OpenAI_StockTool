@@ -1176,20 +1176,36 @@ class BraveSearchClient:
             return 'th'
         
         # Fallback: check for common language indicators in Latin script
+        # Use word boundaries to avoid false matches
+        import re
         text_lower = text.lower()
         
-        # German indicators
-        if any(word in text_lower for word in ['der', 'die', 'das', 'und', 'ich', 'ist', 'mit', 'nicht']):
+        # Helper function to check for whole words only
+        def has_whole_words(text_to_check, words):
+            """Check if text contains any of the words as whole words (with word boundaries)."""
+            for word in words:
+                # Use word boundaries to match whole words only
+                if re.search(r'\b' + re.escape(word) + r'\b', text_to_check):
+                    return True
+            return False
+        
+        # German indicators (whole words only)
+        if has_whole_words(text_lower, ['der', 'die', 'das', 'und', 'ich', 'ist', 'mit', 'nicht', 'sie', 'auch', 'auf']):
             return 'de'
-        # French indicators  
-        elif any(word in text_lower for word in ['le', 'de', 'et', 'à', 'un', 'il', 'être', 'avoir', 'que', 'ce']):
-            return 'fr'
-        # Spanish indicators
-        elif any(word in text_lower for word in ['el', 'de', 'que', 'y', 'a', 'en', 'un', 'es', 'se', 'no', 'te']):
-            return 'es'
-        # Italian indicators
-        elif any(word in text_lower for word in ['il', 'di', 'che', 'e', 'la', 'un', 'è', 'per', 'in', 'con']):
-            return 'it'
+        # French indicators (whole words only)
+        elif has_whole_words(text_lower, ['le', 'la', 'les', 'et', 'un', 'une', 'est', 'sont', 'dans', 'pour', 'avec']):
+            # Avoid false positive from English "analysis" containing "al"
+            if not has_whole_words(text_lower, ['stock', 'price', 'company', 'market', 'analysis', 'financial']):
+                return 'fr'
+        # Spanish indicators (whole words only)
+        elif has_whole_words(text_lower, ['el', 'la', 'los', 'las', 'y', 'un', 'una', 'es', 'son', 'está', 'están']):
+            # Avoid false positive from English words containing Spanish words
+            if not has_whole_words(text_lower, ['stock', 'price', 'company', 'market', 'analysis', 'financial']):
+                return 'es'
+        # Italian indicators (whole words only)
+        elif has_whole_words(text_lower, ['il', 'la', 'i', 'le', 'di', 'che', 'è', 'sono', 'per', 'con', 'da']):
+            if not has_whole_words(text_lower, ['stock', 'price', 'company', 'market', 'analysis', 'financial']):
+                return 'it'
         
         # Default to English
         return 'en'
@@ -2051,41 +2067,81 @@ class PerplexityWebSearchService:
         return enhanced_query
     
     def _fallback_enhance_query(self, query: str, include_recent: bool) -> str:
-        """Fallback rule-based query enhancement."""
+        """Fallback rule-based query enhancement with locale awareness."""
         enhanced_query = query
         
-        # Check if query contains Japanese characters (or other non-ASCII languages)
-        has_non_ascii = any(ord(c) > 127 for c in query)
+        # Detect the language of the query using the robust detection method
+        detected_lang = self._detect_language(query)
+        current_year = datetime.now().year
         
-        # If the query contains non-ASCII characters (like Japanese), apply special processing
-        if has_non_ascii:
+        # Language-specific enhancement logic
+        if detected_lang == 'ja':
+            # Japanese query enhancement
             # Simplify Japanese queries by extracting keywords from complex sentences
             enhanced_query = self._simplify_japanese_query(query)
             
-            # For Japanese queries, only add Japanese recency terms if needed
+            # Add Japanese recency terms if needed
             if include_recent:
-                current_year = datetime.now().year
                 japanese_recency_terms = ['最新', '最近', '2025', str(current_year)]
                 if not any(term in enhanced_query for term in japanese_recency_terms):
-                    # Add Japanese year term instead of English
                     enhanced_query += f" {current_year}年"
+            
+            # Add Japanese analysis terms for financial queries
+            financial_terms_ja = ['株価', '株式', '企業', '金融', '投資']
+            analysis_terms_ja = ['分析', 'レポート', 'ニュース']
+            if any(term in query for term in financial_terms_ja):
+                if not any(term in enhanced_query for term in analysis_terms_ja):
+                    enhanced_query += " 分析"
+            
             return enhanced_query
         
-        # For English queries, use the original enhancement logic
-        # Add recency terms if requested
-        if include_recent:
-            current_year = datetime.now().year
-            recency_terms = ['latest', 'recent', '2025', str(current_year)]
-            if not any(term in query.lower() for term in recency_terms):
-                enhanced_query += f" latest {current_year}"
+        elif detected_lang == 'zh':
+            # Chinese query enhancement
+            if include_recent:
+                chinese_recency_terms = ['最新', '最近', '2025', str(current_year)]
+                if not any(term in enhanced_query for term in chinese_recency_terms):
+                    enhanced_query += f" {current_year}年"
+            
+            # Add Chinese analysis terms for financial queries
+            financial_terms_zh = ['股票', '股价', '公司', '金融', '投资']
+            analysis_terms_zh = ['分析', '报告', '新闻']
+            if any(term in query for term in financial_terms_zh):
+                if not any(term in enhanced_query for term in analysis_terms_zh):
+                    enhanced_query += " 分析"
+            
+            return enhanced_query
         
-        # Add analysis terms for better context
-        analysis_terms = ['analysis', 'review', 'overview', 'report']
-        if not any(term in query.lower() for term in analysis_terms):
-            if any(word in query.lower() for word in ['stock', 'company', 'financial']):
-                enhanced_query += " analysis"
+        elif detected_lang == 'ko':
+            # Korean query enhancement
+            if include_recent:
+                korean_recency_terms = ['최신', '최근', '2025', str(current_year)]
+                if not any(term in enhanced_query for term in korean_recency_terms):
+                    enhanced_query += f" {current_year}년"
+            
+            # Add Korean analysis terms for financial queries
+            financial_terms_ko = ['주가', '주식', '기업', '금융', '투자']
+            analysis_terms_ko = ['분석', '보고서', '뉴스']
+            if any(term in query for term in financial_terms_ko):
+                if not any(term in enhanced_query for term in analysis_terms_ko):
+                    enhanced_query += " 분석"
+            
+            return enhanced_query
         
-        return enhanced_query
+        else:
+            # English and other languages - use original enhancement logic
+            # Add recency terms if requested
+            if include_recent:
+                recency_terms = ['latest', 'recent', '2025', str(current_year)]
+                if not any(term in query.lower() for term in recency_terms):
+                    enhanced_query += f" latest {current_year}"
+            
+            # Add analysis terms for better context
+            analysis_terms = ['analysis', 'review', 'overview', 'report']
+            if not any(term in query.lower() for term in analysis_terms):
+                if any(word in query.lower() for word in ['stock', 'company', 'financial']):
+                    enhanced_query += " analysis"
+            
+            return enhanced_query
     
     async def _llm_synthesize_query(self, query: str, include_recent: bool) -> str:
         """Use the configured default model to enhance the search query before fallback."""
@@ -2318,20 +2374,36 @@ class PerplexityWebSearchService:
             return 'th'
         
         # Fallback: check for common language indicators in Latin script
+        # Use word boundaries to avoid false matches
+        import re
         text_lower = text.lower()
         
-        # German indicators
-        if any(word in text_lower for word in ['der', 'die', 'das', 'und', 'ich', 'ist', 'mit', 'nicht']):
+        # Helper function to check for whole words only
+        def has_whole_words(text_to_check, words):
+            """Check if text contains any of the words as whole words (with word boundaries)."""
+            for word in words:
+                # Use word boundaries to match whole words only
+                if re.search(r'\b' + re.escape(word) + r'\b', text_to_check):
+                    return True
+            return False
+        
+        # German indicators (whole words only)
+        if has_whole_words(text_lower, ['der', 'die', 'das', 'und', 'ich', 'ist', 'mit', 'nicht', 'sie', 'auch', 'auf']):
             return 'de'
-        # French indicators  
-        elif any(word in text_lower for word in ['le', 'de', 'et', 'à', 'un', 'il', 'être', 'avoir', 'que', 'ce']):
-            return 'fr'
-        # Spanish indicators
-        elif any(word in text_lower for word in ['el', 'de', 'que', 'y', 'a', 'en', 'un', 'es', 'se', 'no', 'te']):
-            return 'es'
-        # Italian indicators
-        elif any(word in text_lower for word in ['il', 'di', 'che', 'e', 'la', 'un', 'è', 'per', 'in', 'con']):
-            return 'it'
+        # French indicators (whole words only)
+        elif has_whole_words(text_lower, ['le', 'la', 'les', 'et', 'un', 'une', 'est', 'sont', 'dans', 'pour', 'avec']):
+            # Avoid false positive from English "analysis" containing "al"
+            if not has_whole_words(text_lower, ['stock', 'price', 'company', 'market', 'analysis', 'financial']):
+                return 'fr'
+        # Spanish indicators (whole words only)
+        elif has_whole_words(text_lower, ['el', 'la', 'los', 'las', 'y', 'un', 'una', 'es', 'son', 'está', 'están']):
+            # Avoid false positive from English words containing Spanish words
+            if not has_whole_words(text_lower, ['stock', 'price', 'company', 'market', 'analysis', 'financial']):
+                return 'es'
+        # Italian indicators (whole words only)
+        elif any(word in text_lower for word in ['il', 'la', 'i', 'le', 'di', 'che', 'è', 'sono', 'per', 'con', 'da']):
+            if not has_whole_words(text_lower, ['stock', 'price', 'company', 'market', 'analysis', 'financial']):
+                return 'it'
         
         # Default to English
         return 'en'

@@ -26,7 +26,6 @@ from app.core.config import (
 )
 from app.services.ml.embedder import QueryEmbedder
 from app.services.ml.classifier import ToolClassifier
-from app.services.ml.doc_based_selector import DocBasedToolSelector
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +61,6 @@ class MLToolSelector:
             
         self.embedder: Optional[QueryEmbedder] = None
         self.classifier: Optional[ToolClassifier] = None
-        self.doc_selector: Optional[DocBasedToolSelector] = None
         self.model_loaded = False
         self.model_path = ML_MODEL_PATH
         self.confidence_threshold = ML_CONFIDENCE_THRESHOLD
@@ -72,7 +70,6 @@ class MLToolSelector:
         self.stats = {
             'total_predictions': 0,
             'fallback_count': 0,
-            'doc_based_count': 0,  # Track doc-based usage
             'ml_count': 0,  # Track ML usage
             'avg_confidence': 0.0,
             'avg_prediction_time_ms': 0.0,
@@ -111,10 +108,6 @@ class MLToolSelector:
             self.classifier = ToolClassifier.load(self.model_path)
             logger.info(f"Classifier loaded with {len(self.classifier.tool_names)} tools")
             
-            # Initialize doc-based selector (shares embedder)
-            self.doc_selector = DocBasedToolSelector(self.embedder)
-            logger.info("Doc-based selector initialized")
-            
             self.model_loaded = True
             logger.info("✅ ML model loaded successfully!")
             return True
@@ -129,21 +122,16 @@ class MLToolSelector:
         query: str,
         available_tools: Optional[List[str]] = None,
         return_probabilities: bool = False,
-        use_hybrid: bool = True
+        use_hybrid: bool = True  # Deprecated parameter, kept for backward compatibility
     ) -> Tuple[List[str], Dict[str, float]]:
         """
-        Predict relevant tools for a query using ML with doc-based fallback.
-        
-        HYBRID STRATEGY:
-        1. Try ML classifier first (fastest, best for trained patterns)
-        2. If ML confidence is low, use doc-based similarity (better cold start)
-        3. Merge results if both provide partial matches
+        Predict relevant tools for a query using ML classifier.
         
         Args:
             query: User query text
             available_tools: Optional list of available tools to filter by
             return_probabilities: Whether to return tool probabilities
-            use_hybrid: Whether to use hybrid ML + doc-based approach
+            use_hybrid: Deprecated, kept for backward compatibility
             
         Returns:
             Tuple of (selected_tools, probabilities_dict)
@@ -155,8 +143,8 @@ class MLToolSelector:
         # Lazy load model if needed
         if not self.model_loaded:
             if not self._load_model():
-                logger.warning("ML model not loaded, falling back to doc-based")
-                return self._predict_doc_based(query, available_tools, return_probabilities)
+                logger.warning("ML model not loaded, returning empty tool list")
+                return [], {}
         
         try:
             # Step 1: Try ML classifier first
@@ -181,6 +169,22 @@ class MLToolSelector:
                 if prob >= self.confidence_threshold
             }
             
+            # Calculate average confidence from ALL predicted tools
+            avg_confidence = sum(tool_probs.values()) / len(tool_probs) if tool_probs else 0.0
+            
+            # If confidence is too low (< 0.5), return empty list and let OpenAI model decide
+            # This prevents forcing low-confidence predictions
+            LOW_CONFIDENCE_THRESHOLD = 0.5
+            if avg_confidence < LOW_CONFIDENCE_THRESHOLD:
+                logger.info(
+                    f"ML confidence too low ({avg_confidence:.2f} < {LOW_CONFIDENCE_THRESHOLD}), "
+                    "returning empty list to let model decide with all tools"
+                )
+                # Update stats for low confidence fallback
+                prediction_time_ms = (time.time() - start_time) * 1000
+                self._update_stats([], {}, prediction_time_ms, avg_confidence, method='ml_low_confidence')
+                return [], {}
+            
             # Sort by probability and limit to max_tools
             sorted_tools = sorted(
                 filtered_tools.items(),
@@ -191,57 +195,6 @@ class MLToolSelector:
             selected_tools = [tool for tool, _ in sorted_tools]
             probabilities = dict(sorted_tools)
             
-            # Calculate average confidence
-            avg_confidence = sum(probabilities.values()) / len(probabilities) if probabilities else 0.0
-            
-            # Step 2: Check if we should augment with doc-based (hybrid mode)
-            if use_hybrid and self.doc_selector:
-                # Use doc-based if:
-                # - ML returned nothing
-                # - ML confidence is low (< 0.40) regardless of tool count
-                # This is more aggressive to ensure doc-based gets used
-                should_augment = (
-                    not selected_tools or
-                    avg_confidence < 0.40
-                )
-                
-                if should_augment:
-                    logger.info(
-                        f"ML confidence low ({avg_confidence:.2f}) or few tools ({len(selected_tools)}), "
-                        "augmenting with doc-based selector"
-                    )
-                    
-                    # Get doc-based predictions
-                    doc_tools, doc_scores = self.doc_selector.predict_tools(
-                        query,
-                        max_tools=self.max_tools,
-                        available_tools=available_tools
-                    )
-                    
-                    # Merge results (prioritize ML, add doc-based if needed)
-                    merged_tools = list(selected_tools)  # Start with ML tools
-                    merged_probs = dict(probabilities)
-                    
-                    for doc_tool in doc_tools:
-                        if doc_tool not in merged_tools and len(merged_tools) < self.max_tools:
-                            merged_tools.append(doc_tool)
-                            # Convert similarity (0-1) to probability-like score
-                            merged_probs[doc_tool] = doc_scores.get(doc_tool, 0.0) * 0.7  # Scale down
-                    
-                    # Update if we got better results
-                    if len(merged_tools) > len(selected_tools):
-                        logger.info(
-                            f"Hybrid approach added {len(merged_tools) - len(selected_tools)} "
-                            f"doc-based tools: {[t for t in merged_tools if t not in selected_tools]}"
-                        )
-                        selected_tools = merged_tools
-                        probabilities = merged_probs
-                        avg_confidence = sum(probabilities.values()) / len(probabilities)
-                        
-                        # Track doc-based usage
-                        with self.stats_lock:
-                            self.stats['doc_based_count'] += 1
-            
             # Update statistics
             prediction_time_ms = (time.time() - start_time) * 1000
             self._update_stats(
@@ -249,14 +202,13 @@ class MLToolSelector:
                 probabilities, 
                 prediction_time_ms, 
                 avg_confidence,
-                method='ml' if not use_hybrid or avg_confidence >= 0.5 else 'hybrid'
+                method='ml'
             )
             
             probabilities_out = probabilities if return_probabilities else {}
             
             logger.info(
-                f"{'Hybrid' if use_hybrid and avg_confidence < 0.5 else 'ML'} predicted "
-                f"{len(selected_tools)} tools in {prediction_time_ms:.1f}ms "
+                f"ML predicted {len(selected_tools)} tools in {prediction_time_ms:.1f}ms "
                 f"(avg confidence: {avg_confidence:.2f}): {selected_tools}"
             )
             
@@ -264,51 +216,6 @@ class MLToolSelector:
             
         except Exception as e:
             logger.error(f"ML prediction failed: {e}", exc_info=True)
-            
-            # Final fallback: try doc-based
-            if use_hybrid and self.doc_selector:
-                logger.info("ML failed, trying doc-based fallback")
-                return self._predict_doc_based(query, available_tools, return_probabilities)
-            
-            return [], {}
-    
-    def _predict_doc_based(
-        self,
-        query: str,
-        available_tools: Optional[List[str]],
-        return_probabilities: bool
-    ) -> Tuple[List[str], Dict[str, float]]:
-        """
-        Predict using doc-based selector only.
-        
-        This is used when ML is unavailable or as a fallback.
-        """
-        if not self.doc_selector:
-            # Initialize doc selector if not already done
-            if self.embedder:
-                self.doc_selector = DocBasedToolSelector(self.embedder)
-            else:
-                self.embedder = QueryEmbedder()
-                self.doc_selector = DocBasedToolSelector(self.embedder)
-        
-        try:
-            tools, scores = self.doc_selector.predict_tools(
-                query,
-                max_tools=self.max_tools,
-                available_tools=available_tools
-            )
-            
-            # Track usage
-            with self.stats_lock:
-                self.stats['doc_based_count'] += 1
-                self.stats['total_predictions'] += 1
-            
-            logger.info(f"Doc-based selected {len(tools)} tools: {tools}")
-            
-            return tools, scores if return_probabilities else {}
-            
-        except Exception as e:
-            logger.error(f"Doc-based prediction failed: {e}", exc_info=True)
             return [], {}
     
     def should_use_ml(self) -> bool:
@@ -350,6 +257,8 @@ class MLToolSelector:
             # Track method usage
             if method == 'ml':
                 self.stats['ml_count'] += 1
+            elif method == 'ml_low_confidence':
+                self.stats['fallback_count'] += 1  # Count as fallback since we didn't predict
             
             # Track tool usage
             for tool in selected_tools:
@@ -372,10 +281,8 @@ class MLToolSelector:
             return {
                 'total_predictions': total,
                 'ml_count': self.stats['ml_count'],
-                'doc_based_count': self.stats['doc_based_count'],
                 'fallback_count': self.stats['fallback_count'],
                 'ml_rate': self.stats['ml_count'] / total if total > 0 else 0.0,
-                'doc_based_rate': self.stats['doc_based_count'] / total if total > 0 else 0.0,
                 'fallback_rate': self.stats['fallback_count'] / total if total > 0 else 0.0,
                 'avg_confidence': round(self.stats['avg_confidence'], 3),
                 'avg_prediction_time_ms': round(self.stats['avg_prediction_time_ms'], 2),
@@ -383,7 +290,6 @@ class MLToolSelector:
                 'confidence_distribution': dict(self.stats['confidence_distribution']),
                 'model_loaded': self.model_loaded,
                 'ml_enabled': ML_TOOL_SELECTION_ENABLED,
-                'doc_selector_available': self.doc_selector is not None,
             }
     
     def record_fallback(self):
@@ -397,7 +303,6 @@ class MLToolSelector:
             self.stats = {
                 'total_predictions': 0,
                 'fallback_count': 0,
-                'doc_based_count': 0,
                 'ml_count': 0,
                 'avg_confidence': 0.0,
                 'avg_prediction_time_ms': 0.0,
@@ -405,12 +310,6 @@ class MLToolSelector:
                 'confidence_distribution': defaultdict(int),
             }
         logger.info("Statistics reset")
-    
-    def get_doc_selector(self) -> Optional[DocBasedToolSelector]:
-        """Get the doc-based selector for direct use."""
-        if not self.doc_selector and self.embedder:
-            self.doc_selector = DocBasedToolSelector(self.embedder)
-        return self.doc_selector
 
 
 # Global singleton instance
